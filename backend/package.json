@@ -1,0 +1,37 @@
+{
+    "name": "audit-system-backend",
+    "version": "1.0.0",
+    "description": "Sistema de auditoría con encriptación para bases de datos",
+    "main": "server.js",
+    "scripts": {
+        "dev": "nodemon server.js",
+        "start": "node server.js",
+        "build": "echo \"No build step defined\""
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "dotenv": "^17.2.1",
+        "express": "^4.18.2",
+        "express-rate-limit": "^7.5.1",
+        "helmet": "^7.2.0",
+        "mysql2": "^3.14.3",
+        "pg": "^8.16.3"
+    },
+    "devDependencies": {
+        "nodemon": "^3.1.10"
+    },
+    "keywords": [
+        "audit",
+        "encryption",
+        "database",
+        "mysql",
+        "postgresql",
+        "security",
+        "nodejs"
+    ],
+    "author": "Sistema de Auditoría",
+    "license": "MIT",
+    "engines": {
+        "node": ">=18.0.0"
+    }
+}

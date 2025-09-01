@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/shield-icon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Sistema de auditoría con encriptación a nivel de base de datos" />
+    <meta name="theme-color" content="#4f46e5" />
+
+    <!-- Preconnect a dominios externos para mejor rendimiento -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+
+    <!-- Fuente opcional (puedes remover si no la usas) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <title>%VITE_APP_TITLE%</title>
+
+    <!-- Estilos críticos inline para evitar FOUC -->
+    <style>
+        /* Loading spinner inicial */
+        #initial-loader {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: #f9fafb;
+            z-index: 9999;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #e5e7eb;
+            border-top: 4px solid #4f46e5;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        body {
+            margin: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', sans-serif;
+        }
+    </style>
+</head>
+
+<body>
+    <!-- Loader inicial -->
+    <div id="initial-loader">
+        <div class="spinner"></div>
+    </div>
+
+    <!-- Contenedor principal de React -->
+    <div id="root"></div>
+
+    <!-- Script principal -->
+    <script type="module" src="/src/main.tsx"></script>
+
+    <!-- Script para ocultar el loader cuando React se monte -->
+    <script>
+        // Ocultar loader después de un tiempo máximo
+        setTimeout(() => {
+            const loader = document.getElementById('initial-loader');
+            if (loader) {
+                loader.style.display = 'none';
+            }
+        }, 5000);
+    </script>
+</body>
+
+</html>

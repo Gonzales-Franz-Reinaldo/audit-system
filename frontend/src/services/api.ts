@@ -2,155 +2,129 @@ import axios, { AxiosInstance, AxiosResponse, AxiosError } from 'axios';
 import {
     DatabaseType,
     DatabaseConfig,
-    ConnectionInfo,
     TableInfo,
     AuditTable,
-    AuditData,
-    AuditStatistics,
     AuditSetupResult,
     BatchAuditSetupResult,
+    AuditData,
     PasswordValidation,
-    IntegrityCheck,
-    AuditSummary,
-    ReportFilters,
-    AuditReport,
+    AuditStatistics,
     ApiResponse
 } from '../types';
 
 class ApiService {
     private baseURL: string;
-    private axiosInstance: AxiosInstance;
+    private axiosInstance: AxiosInstance | null = null;
+    private initialized: boolean = false;
 
     constructor() {
         // CORREGIR: Inicialización más robusta
         this.baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
-        
+
         console.log('🔧 Inicializando ApiService con baseURL:', this.baseURL);
 
         try {
-            this.axiosInstance = axios.create({
-                baseURL: this.baseURL,
-                timeout: 30000, // 30 segundos
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-
-            console.log('✅ AxiosInstance creado correctamente');
-
-            // Interceptor para manejar errores
-            this.axiosInstance.interceptors.response.use(
-                (response: AxiosResponse) => {
-                    console.log('📨 Respuesta exitosa:', response.status, response.config.url);
-                    return response;
-                },
-                (error: AxiosError) => {
-                    console.error('❌ Error en petición:', error.response?.status, error.config?.url, error.message);
-                    return Promise.reject(error);
-                }
-            );
-
-            // Interceptor para requests
-            this.axiosInstance.interceptors.request.use(
-                (config) => {
-                    console.log('🚀 Enviando petición:', config.method?.toUpperCase(), config.url);
-                    return config;
-                },
-                (error) => {
-                    console.error('❌ Error en configuración de petición:', error);
-                    return Promise.reject(error);
-                }
-            );
-
+            this.initializeAxios();
+            this.initialized = true;
+            console.log('✅ ApiService inicializado correctamente');
         } catch (error) {
-            console.error('💥 Error creando AxiosInstance:', error);
-            throw new Error('Error inicializando servicio API');
+            console.error('💥 Error inicializando ApiService:', error);
+            this.initialized = false;
         }
+    }
+
+    private initializeAxios(): void {
+        this.axiosInstance = axios.create({
+            baseURL: this.baseURL,
+            timeout: 30000,
+            headers: {
+                'Content-Type': 'application/json',
+            },
+        });
+
+        console.log('✅ AxiosInstance creado correctamente');
+
+        // Interceptor para manejar errores
+        this.axiosInstance.interceptors.response.use(
+            (response: AxiosResponse) => {
+                console.log('📨 Respuesta exitosa:', response.data);
+                return response;
+            },
+            (error: AxiosError) => {
+                console.error('📨 Error en respuesta:', error);
+                return Promise.reject(error);
+            }
+        );
+
+        // Interceptor para requests
+        this.axiosInstance.interceptors.request.use(
+            (config) => {
+                console.log('📤 Enviando petición:', config.method?.toUpperCase(), config.url);
+                return config;
+            },
+            (error) => {
+                console.error('📤 Error en petición:', error);
+                return Promise.reject(error);
+            }
+        );
     }
 
     // Helper para verificar que la instancia está inicializada
     private ensureInitialized(): void {
-        if (!this.axiosInstance) {
+        if (!this.initialized || !this.axiosInstance) {
             console.error('💥 AxiosInstance no está inicializado');
-            throw new Error('Servicio API no inicializado correctamente');
-        }
-    }
-
-    // Helper para manejar respuestas - CORREGIDO
-    private handleResponse<T>(response: AxiosResponse<ApiResponse<T> | any>): T {
-        // Verificar si la respuesta tiene la estructura ApiResponse
-        if (response.data && typeof response.data === 'object') {
-            if ('success' in response.data) {
-                if (response.data.success) {
-                    return response.data.data as T || response.data as T;
-                } else {
-                    throw new Error(response.data.error || response.data.message || 'Error en la respuesta');
-                }
-            } else {
-                // Si no tiene la estructura ApiResponse, devolver directamente los datos
-                return response.data as T;
+            console.log('🔄 Intentando reinicializar...');
+            try {
+                this.initializeAxios();
+                this.initialized = true;
+            } catch (error) {
+                throw new Error('Servicio API no inicializado correctamente');
             }
         }
-        
-        throw new Error('Respuesta del servidor inválida');
     }
 
     // Helper para manejar errores - CORREGIDO
     private handleError(error: AxiosError): never {
         console.error('🔍 Manejando error:', error);
-        
+
         if (error.response?.data) {
             const apiError = error.response.data as any;
             const errorMessage = apiError.error || apiError.message || 'Error de API';
             console.error('📋 Error del servidor:', errorMessage);
             throw new Error(errorMessage);
         }
-        
+
         if (error.request) {
             console.error('📋 Error de red - no hay respuesta del servidor');
             throw new Error('Error de conexión - no se pudo contactar el servidor');
         }
-        
+
         console.error('📋 Error de configuración:', error.message);
         throw new Error(error.message || 'Error de conexión');
     }
 
     // === MÉTODOS DE BASE DE DATOS ===
 
-    // Probar conexión a base de datos - CORREGIDO
+    // Probar conexión a base de datos
     async testConnection(type: DatabaseType, config: DatabaseConfig): Promise<any> {
         try {
             this.ensureInitialized();
-            
+
             console.log(`🔍 Enviando petición de prueba: ${type}`, {
                 host: config.host,
                 database: config.database,
                 user: config.user
             });
 
-            const response = await this.axiosInstance.post('/database/test-connection', {
+            const response = await this.axiosInstance!.post('/database/test-connection', {
                 type,
                 config
             });
 
             console.log('✅ Respuesta recibida:', response.data);
-            return response.data; // Retornar la respuesta completa
+            return response.data;
         } catch (error) {
             console.error('❌ Error en testConnection:', error);
-            return this.handleError(error as AxiosError);
-        }
-    }
-
-    // Obtener información de la base de datos
-    async getDatabaseInfo(type: DatabaseType, config: DatabaseConfig): Promise<any> {
-        try {
-            this.ensureInitialized();
-            const response = await this.axiosInstance.post('/database/info', {
-                type,
-                config
-            });
-            return this.handleResponse(response);
-        } catch (error) {
             return this.handleError(error as AxiosError);
         }
     }
@@ -165,11 +139,11 @@ class ApiService {
     }> {
         try {
             this.ensureInitialized();
-            const response = await this.axiosInstance.post('/tables/list', {
+            const response = await this.axiosInstance!.post('/tables/list', {
                 type,
                 config
             });
-            return response.data; // El backend ya devuelve el formato correcto
+            return response.data;
         } catch (error) {
             return this.handleError(error as AxiosError);
         }
@@ -184,17 +158,58 @@ class ApiService {
     }> {
         try {
             this.ensureInitialized();
-            const response = await this.axiosInstance.post('/audit/tables', {
+
+            console.log('🔍 Obteniendo tablas de auditoría...');
+
+            const response = await this.axiosInstance!.post('/audit/tables', {
                 type,
                 config
             });
-            return response.data; // El backend ya devuelve el formato correcto
+
+            console.log('📨 Respuesta bruta del backend:', response.data);
+
+            // CORREGIR: Manejar diferentes estructuras de respuesta
+            if (response.data && response.data.success) {
+                const data = response.data.data;
+
+                // Verificar si data tiene auditTables
+                if (data && data.auditTables) {
+                    console.log('✅ Estructura correcta con auditTables:', data.auditTables);
+                    return {
+                        auditTables: data.auditTables,
+                        total: data.total || data.auditTables.length
+                    };
+                }
+
+                // Fallback: si data es directamente el array
+                if (Array.isArray(data)) {
+                    console.log('✅ Data es array directo:', data);
+                    return {
+                        auditTables: data,
+                        total: data.length
+                    };
+                }
+
+                // Fallback: si no hay estructura esperada
+                console.warn('⚠️ Estructura de respuesta inesperada:', data);
+                return {
+                    auditTables: [],
+                    total: 0
+                };
+            }
+
+            console.error('❌ Respuesta sin success:', response.data);
+            return {
+                auditTables: [],
+                total: 0
+            };
         } catch (error) {
+            console.error('❌ Error en getAuditTables:', error);
             return this.handleError(error as AxiosError);
         }
     }
 
-    // Configurar auditoría para una tabla - COMPLETAMENTE CORREGIDO
+    // Configurar auditoría para una tabla
     async setupTableAudit(
         type: DatabaseType,
         config: DatabaseConfig,
@@ -202,28 +217,16 @@ class ApiService {
         encryptionKey: string
     ): Promise<AuditSetupResult> {
         try {
-            // VERIFICAR que la instancia esté inicializada
             this.ensureInitialized();
-            
-            console.log(`🔧 Configurando auditoría API para: ${tableName}`);
-            console.log(`📊 Datos a enviar:`, { 
-                type, 
-                config: { 
-                    host: config.host, 
-                    database: config.database,
-                    user: config.user 
-                }, 
-                encryptionKey: `${encryptionKey.length} caracteres` 
-            });
 
-            // Validar en el frontend antes de enviar
+            console.log(`🔧 Configurando auditoría API para: ${tableName}`);
+
             if (encryptionKey.length < 12) {
                 throw new Error('La clave de encriptación debe tener al menos 12 caracteres');
             }
 
-            // VERIFICAR que axiosInstance existe antes de usarlo
             if (!this.axiosInstance) {
-                throw new Error('AxiosInstance no está disponible');
+                throw new Error('Servicio API no disponible');
             }
 
             const response = await this.axiosInstance.post(`/audit/setup/${tableName}`, {
@@ -233,60 +236,27 @@ class ApiService {
             });
 
             console.log(`✅ Respuesta de configuración:`, response.data);
-            
-            // Verificar que la respuesta tenga el formato esperado
+
             if (!response.data) {
                 throw new Error('Respuesta vacía del servidor');
             }
 
             return response.data;
-            
+
         } catch (error) {
             console.error(`❌ Error en setupTableAudit API:`, error);
-            
+
             const axiosError = error as AxiosError;
             if (axiosError.response?.data) {
-                const apiError = axiosError.response.data as any;
-                
-                // Manejar errores específicos
-                if (apiError.error) {
-                    if (apiError.error.includes('12 caracteres')) {
-                        throw new Error('La clave debe tener al menos 12 caracteres. Usa el generador automático si necesitas ayuda.');
-                    }
-                    if (apiError.error.includes('complejidad')) {
-                        throw new Error('La clave debe contener mayúsculas, minúsculas, números y símbolos especiales.');
-                    }
-                    throw new Error(apiError.error);
-                }
-                
-                throw new Error(apiError.message || 'Error configurando auditoría');
+                const errorData = axiosError.response.data as any;
+                throw new Error(errorData.error || errorData.message || 'Error del servidor');
             }
-            
+
             throw new Error(axiosError.message || 'Error de conexión al configurar auditoría');
         }
     }
-    // Configurar auditoría para todas las tablas
-    async setupAllTablesAudit(
-        type: DatabaseType,
-        config: DatabaseConfig,
-        tables: string[],
-        encryptionKey: string
-    ): Promise<BatchAuditSetupResult> {
-        try {
-            this.ensureInitialized();
-            const response = await this.axiosInstance.post('/audit/setup-all', {
-                type,
-                config,
-                tables,
-                encryptionKey,
-            });
-            return response.data;
-        } catch (error) {
-            return this.handleError(error as AxiosError);
-        }
-    }
 
-    // Obtener datos de auditoría encriptados
+    // Obtener datos de auditoría encriptados - CORREGIDO COMPLETAMENTE
     async getEncryptedAuditData(
         type: DatabaseType,
         config: DatabaseConfig,
@@ -299,6 +269,10 @@ class ApiService {
             
             console.log(`🔍 Obteniendo datos encriptados de: ${auditTableName}`);
             
+            if (!this.axiosInstance) {
+                throw new Error('Servicio API no está disponible');
+            }
+            
             const response = await this.axiosInstance.post(`/audit/view-encrypted/${auditTableName}`, {
                 type,
                 config,
@@ -306,16 +280,32 @@ class ApiService {
                 offset
             });
 
-            console.log('✅ Datos encriptados obtenidos:', response.data);
-            return response.data; // Retornar directamente los datos del backend
-            
+            console.log('📨 Respuesta completa del backend:', response.data);
+
+            // CORREGIR: Manejar la estructura de respuesta correcta
+            if (response.data && response.data.success) {
+                // El backend ahora devuelve: { success: true, data: [...], columns: [...], totalRecords: n, isEncrypted: true }
+                const result: AuditData = {
+                    data: response.data.data || [],
+                    columns: response.data.columns || [],
+                    totalRecords: response.data.totalRecords || 0,
+                    isEncrypted: response.data.isEncrypted || true
+                };
+
+                console.log('✅ Datos encriptados procesados:', result);
+                return result;
+            }
+
+            console.error('❌ Respuesta sin success o estructura incorrecta:', response.data);
+            throw new Error('Estructura de respuesta inválida del servidor');
+
         } catch (error) {
             console.error(`❌ Error obteniendo datos encriptados:`, error);
             
             const axiosError = error as AxiosError;
             if (axiosError.response?.data) {
-                const apiError = axiosError.response.data as any;
-                throw new Error(apiError.error || apiError.message || 'Error obteniendo datos encriptados');
+                const errorData = axiosError.response.data as any;
+                throw new Error(errorData.error || errorData.message || 'Error del servidor');
             }
             
             throw new Error(axiosError.message || 'Error de conexión al obtener datos encriptados');
@@ -323,8 +313,7 @@ class ApiService {
     }
 
 
-
-    // Obtener datos de auditoría desencriptados
+    // Obtener datos de auditoría desencriptados - CORREGIDO
     async getDecryptedAuditData(
         type: DatabaseType,
         config: DatabaseConfig,
@@ -338,6 +327,10 @@ class ApiService {
             
             console.log(`🔓 Desencriptando datos de: ${auditTableName}`);
             
+            if (!this.axiosInstance) {
+                throw new Error('Servicio API no está disponible');
+            }
+            
             const response = await this.axiosInstance.post(`/audit/view-decrypted/${auditTableName}`, {
                 type,
                 config,
@@ -346,23 +339,39 @@ class ApiService {
                 offset
             });
 
-            console.log('✅ Datos desencriptados obtenidos:', response.data);
-            return response.data; // Retornar directamente los datos del backend
-            
+            console.log('📨 Respuesta completa del backend (desencriptado):', response.data);
+
+            // CORREGIR: Manejar la estructura de respuesta correcta
+            if (response.data && response.data.success) {
+                const result: AuditData = {
+                    data: response.data.data || [],
+                    columns: response.data.columns || [],
+                    originalColumns: response.data.originalColumns || [],
+                    totalRecords: response.data.totalRecords || 0,
+                    isEncrypted: response.data.isEncrypted || false
+                };
+
+                console.log('✅ Datos desencriptados procesados:', result);
+                return result;
+            }
+
+            console.error('❌ Respuesta sin success o estructura incorrecta:', response.data);
+            throw new Error('Estructura de respuesta inválida del servidor');
+
         } catch (error) {
             console.error(`❌ Error desencriptando datos:`, error);
             
             const axiosError = error as AxiosError;
             if (axiosError.response?.data) {
-                const apiError = axiosError.response.data as any;
-                throw new Error(apiError.error || apiError.message || 'Error desencriptando datos');
+                const errorData = axiosError.response.data as any;
+                throw new Error(errorData.error || errorData.message || 'Error del servidor');
             }
             
             throw new Error(axiosError.message || 'Error de conexión al desencriptar datos');
         }
     }
 
-    // Validar contraseña de encriptación
+    // Validar contraseña de encriptación - CORREGIDO
     async validateEncryptionPassword(
         type: DatabaseType,
         config: DatabaseConfig,
@@ -371,13 +380,46 @@ class ApiService {
     ): Promise<PasswordValidation> {
         try {
             this.ensureInitialized();
+
+            if (!this.axiosInstance) {
+                throw new Error('Servicio API no está disponible');
+            }
+
             const response = await this.axiosInstance.post('/audit/validate-password', {
                 type,
                 config,
                 auditTableName,
                 encryptionKey,
             });
-            return this.handleResponse(response);
+
+            return response.data;
+        } catch (error) {
+            console.error('❌ Error validando contraseña:', error);
+            return this.handleError(error as AxiosError);
+        }
+    }
+
+    // Configurar auditoría para todas las tablas
+    async setupAllTablesAudit(
+        type: DatabaseType,
+        config: DatabaseConfig,
+        tables: string[],
+        encryptionKey: string
+    ): Promise<BatchAuditSetupResult> {
+        try {
+            this.ensureInitialized();
+
+            if (!this.axiosInstance) {
+                throw new Error('Servicio API no está disponible');
+            }
+
+            const response = await this.axiosInstance.post('/audit/setup-all', {
+                type,
+                config,
+                tables,
+                encryptionKey,
+            });
+            return response.data;
         } catch (error) {
             return this.handleError(error as AxiosError);
         }
@@ -391,11 +433,16 @@ class ApiService {
     ): Promise<AuditStatistics> {
         try {
             this.ensureInitialized();
+
+            if (!this.axiosInstance) {
+                throw new Error('Servicio API no está disponible');
+            }
+
             const response = await this.axiosInstance.post(`/audit/statistics/${auditTableName}`, {
                 type,
                 config
             });
-            return this.handleResponse(response);
+            return response.data;
         } catch (error) {
             return this.handleError(error as AxiosError);
         }
@@ -409,13 +456,18 @@ class ApiService {
     ): Promise<{ message: string }> {
         try {
             this.ensureInitialized();
+
+            if (!this.axiosInstance) {
+                throw new Error('Servicio API no está disponible');
+            }
+
             const response = await this.axiosInstance.delete(`/audit/remove/${auditTableName}`, {
                 data: {
                     type,
                     config
                 }
             });
-            return this.handleResponse(response);
+            return response.data;
         } catch (error) {
             return this.handleError(error as AxiosError);
         }
@@ -427,6 +479,11 @@ class ApiService {
     async checkHealth(): Promise<{ status: string; message: string; timestamp: string }> {
         try {
             this.ensureInitialized();
+
+            if (!this.axiosInstance) {
+                throw new Error('Servicio API no está disponible');
+            }
+
             const response = await this.axiosInstance.get('/health');
             return response.data;
         } catch (error) {
@@ -439,29 +496,25 @@ class ApiService {
         return {
             baseURL: this.baseURL,
             timeout: 30000,
-            initialized: !!this.axiosInstance
+            initialized: this.initialized
         };
     }
 
     // Método para verificar el estado del servicio
     isInitialized(): boolean {
-        return !!this.axiosInstance;
+        return this.initialized && !!this.axiosInstance;
     }
 
     // Método para reinicializar el servicio si es necesario
     reinitialize(): void {
         console.log('🔄 Reinicializando ApiService...');
         try {
-            this.axiosInstance = axios.create({
-                baseURL: this.baseURL,
-                timeout: 30000,
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
+            this.initializeAxios();
+            this.initialized = true;
             console.log('✅ ApiService reinicializado correctamente');
         } catch (error) {
             console.error('💥 Error reinicializando ApiService:', error);
+            this.initialized = false;
             throw new Error('Error reinicializando servicio API');
         }
     }

@@ -247,68 +247,171 @@ class AuditController {
         }
     }
 
+    // Validar contraseña de encriptación - MÉTODO FALTANTE
+    async validateEncryptionPassword(req, res) {
+        const startTime = Date.now();
+        let traceId;
+
+        try {
+            console.log('🔑 === INICIO VALIDACIÓN CONTRASEÑA ===');
+            const { type, config, auditTableName, encryptionKey } = req.body;
+
+            console.log('📨 Datos recibidos:', {
+                type,
+                auditTableName,
+                config: !!config,
+                encryptionKey: !!encryptionKey
+            });
+
+            traceId = await systemAuditService.logDataAccess(
+                'VALIDATE_ENCRYPTION_PASSWORD',
+                auditTableName,
+                req.ip,
+                true,
+                { startValidation: true }
+            );
+
+            const connection = await databaseManager.getConnection(type, config);
+
+            const validation = await auditService.validateEncryptionPassword(
+                type,
+                connection,
+                config,
+                auditTableName,
+                encryptionKey
+            );
+
+            const duration = Date.now() - startTime;
+
+            await systemAuditService.logDataAccess(
+                'VALIDATE_ENCRYPTION_PASSWORD_RESULT',
+                auditTableName,
+                req.ip,
+                true,
+                {
+                    success: validation.valid,
+                    duration,
+                    traceId
+                }
+            );
+
+            console.log('📋 Resultado de validación:', validation);
+            console.log('🔑 === FIN VALIDACIÓN CONTRASEÑA ===');
+
+            res.json({
+                success: true,
+                data: validation,
+                traceId
+            });
+        } catch (error) {
+            const duration = Date.now() - startTime;
+
+            console.error('💥 Error validando contraseña:', error);
+
+            await systemAuditService.logDataAccess(
+                'VALIDATE_ENCRYPTION_PASSWORD_ERROR',
+                req.body.auditTableName || 'unknown',
+                req.ip,
+                true,
+                {
+                    success: false,
+                    error: error.message,
+                    duration,
+                    traceId
+                }
+            );
+
+            res.status(500).json({
+                success: false,
+                error: 'Error validando contraseña de encriptación',
+                details: error.message,
+                traceId
+            });
+        }
+    }
+
     // Ver datos de auditoría encriptados
     async viewEncryptedAuditData(req, res) {
         const startTime = Date.now();
         let traceId;
 
         try {
+            console.log('🔍 === INICIO VER DATOS ENCRIPTADOS ===');
             const { auditTableName } = req.params;
-            const { type, config, limit = 50, offset = 0 } = req.body;
+            const { type, config, limit = 100, offset = 0 } = req.body;
+
+            console.log('📨 Datos recibidos:', {
+                auditTableName,
+                type,
+                config: !!config,
+                limit,
+                offset
+            });
 
             traceId = await systemAuditService.logDataAccess(
                 'VIEW_ENCRYPTED_AUDIT_DATA',
                 auditTableName,
                 req.ip,
-                false,
+                true,
                 { limit, offset }
             );
 
             const connection = await databaseManager.getConnection(type, config);
 
-            const result = await auditService.getEncryptedAuditData(
+            const auditData = await auditService.getEncryptedAuditData(
                 type,
                 connection,
                 config,
                 auditTableName,
-                parseInt(limit),
-                parseInt(offset)
+                limit,
+                offset
             );
 
             const duration = Date.now() - startTime;
 
-            await systemAuditService.logPerformance(
-                'VIEW_ENCRYPTED_AUDIT_DATA',
-                duration,
+            await systemAuditService.logDataAccess(
+                'VIEW_ENCRYPTED_AUDIT_DATA_SUCCESS',
+                auditTableName,
+                req.ip,
+                true,
                 {
-                    tableName: auditTableName,
-                    recordsProcessed: result.data?.length || 0,
-                    dbType: type,
+                    recordCount: auditData.data.length,
+                    duration,
                     traceId
                 }
             );
 
+            console.log('📋 Datos encriptados obtenidos:', auditData.data.length, 'registros');
+            console.log('🔍 === FIN VER DATOS ENCRIPTADOS ===');
+
+            // CORREGIR: No anidar auditData dentro de otra propiedad data
             res.json({
                 success: true,
-                ...result,
+                ...auditData,  // Esto expande: data, columns, totalRecords, isEncrypted
                 traceId
             });
         } catch (error) {
+            const duration = Date.now() - startTime;
+
+            console.error('💥 Error obteniendo datos encriptados:', error);
+
             await systemAuditService.logDataAccess(
                 'VIEW_ENCRYPTED_AUDIT_DATA_ERROR',
                 req.params.auditTableName || 'unknown',
                 req.ip,
-                false,
+                true,
                 {
+                    success: false,
                     error: error.message,
+                    duration,
                     traceId
                 }
             );
 
-            console.error('❌ Error obteniendo datos encriptados:', error);
             res.status(500).json({
                 success: false,
-                error: error.message,
+                error: 'Error obteniendo datos de auditoría encriptados',
+                details: error.message,
                 traceId
             });
         }
@@ -320,135 +423,152 @@ class AuditController {
         let traceId;
 
         try {
+            console.log('🔓 === INICIO VER DATOS DESENCRIPTADOS ===');
             const { auditTableName } = req.params;
-            const { type, config, encryptionKey, limit = 50, offset = 0 } = req.body;
+            const { type, config, encryptionKey, limit = 100, offset = 0 } = req.body;
+
+            console.log('📨 Datos recibidos:', {
+                auditTableName,
+                type,
+                config: !!config,
+                encryptionKey: !!encryptionKey,
+                limit,
+                offset
+            });
 
             traceId = await systemAuditService.logDataAccess(
                 'VIEW_DECRYPTED_AUDIT_DATA',
                 auditTableName,
                 req.ip,
                 true,
-                { limit, offset }
+                { limit, offset, encryptionUsed: true }
             );
 
             const connection = await databaseManager.getConnection(type, config);
 
-            // Validar contraseña primero
-            const validation = await auditService.validateEncryptionPassword(
-                type,
-                connection,
-                config,
-                auditTableName,
-                encryptionKey
-            );
-
-            if (!validation.valid) {
-                await systemAuditService.logSecurityEvent(
-                    'INVALID_DECRYPTION_PASSWORD',
-                    req.ip,
-                    {
-                        tableName: auditTableName,
-                        ip: req.ip,
-                        userAgent: req.get('User-Agent'),
-                        severity: 'high',
-                        traceId
-                    }
-                );
-
-                return res.status(401).json({
-                    success: false,
-                    error: 'Contraseña de desencriptación incorrecta',
-                    traceId
-                });
-            }
-
-            const result = await auditService.getDecryptedAuditData(
+            const auditData = await auditService.getDecryptedAuditData(
                 type,
                 connection,
                 config,
                 auditTableName,
                 encryptionKey,
-                parseInt(limit),
-                parseInt(offset)
+                limit,
+                offset
             );
 
             const duration = Date.now() - startTime;
 
-            await systemAuditService.logPerformance(
-                'VIEW_DECRYPTED_AUDIT_DATA',
-                duration,
-                {
-                    tableName: auditTableName,
-                    recordsProcessed: result.data?.length || 0,
-                    dbType: type,
-                    traceId
-                }
-            );
-
-            await systemAuditService.logSecurityEvent(
-                'SUCCESSFUL_DATA_DECRYPTION',
+            await systemAuditService.logDataAccess(
+                'VIEW_DECRYPTED_AUDIT_DATA_SUCCESS',
+                auditTableName,
                 req.ip,
+                true,
                 {
-                    tableName: auditTableName,
-                    recordCount: result.data?.length || 0,
-                    severity: 'low',
-                    traceId
+                    recordCount: auditData.data.length,
+                    duration,
+                    traceId,
+                    encryptionUsed: true
                 }
             );
 
+            console.log('📋 Datos desencriptados obtenidos:', auditData.data.length, 'registros');
+            console.log('🔓 === FIN VER DATOS DESENCRIPTADOS ===');
+
+            // CORREGIR: No anidar auditData dentro de otra propiedad data
             res.json({
                 success: true,
-                ...result,
+                ...auditData,  // Esto expande: data, columns, totalRecords, isEncrypted
                 traceId
             });
         } catch (error) {
+            const duration = Date.now() - startTime;
+
+            console.error('💥 Error obteniendo datos desencriptados:', error);
+
             await systemAuditService.logDataAccess(
                 'VIEW_DECRYPTED_AUDIT_DATA_ERROR',
                 req.params.auditTableName || 'unknown',
                 req.ip,
                 true,
                 {
+                    success: false,
                     error: error.message,
-                    traceId
+                    duration,
+                    traceId,
+                    encryptionUsed: true
                 }
             );
 
-            console.error('❌ Error desencriptando datos:', error);
             res.status(500).json({
                 success: false,
-                error: error.message,
+                error: 'Error obteniendo datos de auditoría desencriptados',
+                details: error.message,
                 traceId
             });
         }
     }
+
+
 
     // Resto de métodos con logging similar...
     async getAuditTables(req, res) {
         const startTime = Date.now();
 
         try {
+            console.log('📋 === INICIO OBTENER TABLAS AUDITORÍA ===');
             const { type, config } = req.body;
-            const connection = await databaseManager.getConnection(type, config);
-            const result = await auditService.getAuditTables(type, connection, config);
 
-            await systemAuditService.logPerformance(
-                'GET_AUDIT_TABLES',
-                Date.now() - startTime,
+            console.log('📨 Datos recibidos:', {
+                type,
+                config: !!config
+            });
+
+            const connection = await databaseManager.getConnection(type, config);
+
+            const auditTables = await auditService.getAuditTables(type, connection, config);
+
+            const duration = Date.now() - startTime;
+
+            await systemAuditService.logSystemAction(
+                'GET_AUDIT_TABLES_SUCCESS',
+                req.ip,
                 {
-                    tableCount: result?.length || 0,
+                    tableCount: auditTables.length,
+                    duration,
                     dbType: type
                 }
             );
 
+            console.log('📋 Tablas de auditoría obtenidas:', auditTables.length);
+            console.log('📋 === FIN OBTENER TABLAS AUDITORÍA ===');
+
+            // CORREGIR: Asegurarse de que la respuesta tenga la estructura correcta
             res.json({
                 success: true,
-                auditTables: result
+                data: {
+                    auditTables: auditTables,  // ← IMPORTANTE: usar "auditTables"
+                    total: auditTables.length
+                }
             });
         } catch (error) {
-            console.error('❌ Error obteniendo tablas de auditoría:', error);
+            const duration = Date.now() - startTime;
+
+            console.error('💥 Error obteniendo tablas de auditoría:', error);
+
+            await systemAuditService.logSystemAction(
+                'GET_AUDIT_TABLES_ERROR',
+                req.ip,
+                {
+                    error: error.message,
+                    duration
+                },
+                'error'
+            );
+
             res.status(500).json({
                 success: false,
-                error: error.message
+                error: 'Error obteniendo tablas de auditoría',
+                details: error.message
             });
         }
     }

@@ -66,6 +66,14 @@ router.post('/view-decrypted/:auditTableName',
     auditController.viewDecryptedAuditData
 );
 
+// AGREGAR: Ruta para validar contraseña - FALTABA ESTA RUTA
+router.post('/validate-password',
+    SecurityMiddleware.encryptionRateLimit,
+    SecurityMiddleware.validateEncryptionKey,
+    SecurityMiddleware.dataAccessLogger('VALIDATE_PASSWORD'),
+    auditController.validateEncryptionPassword
+);
+
 // Rutas para eliminación (rate limit muy estricto)
 router.delete('/remove/:auditTableName',
     SecurityMiddleware.createRateLimit(60000, 5), // Solo 5 eliminaciones por minuto

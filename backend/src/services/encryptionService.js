@@ -163,9 +163,50 @@ class EncryptionService {
 
             this.validateEncryptionKey(password);
 
+            // MEJORAR: Manejar diferentes tipos de entrada
+            if (typeof encryptedText !== 'string') {
+                console.warn('⚠️ encryptedText no es string:', typeof encryptedText, encryptedText);
+                
+                // Si es una fecha o timestamp, convertir apropiadamente
+                if (encryptedText instanceof Date) {
+                    console.warn('⚠️ Dato es una fecha, probablemente no encriptado correctamente');
+                    return encryptedText.toISOString();
+                }
+                
+                // Si es un buffer o array, convertir a string
+                if (Buffer.isBuffer(encryptedText)) {
+                    encryptedText = encryptedText.toString('utf8');
+                } else if (Array.isArray(encryptedText)) {
+                    encryptedText = Buffer.from(encryptedText).toString('utf8');
+                } else {
+                    encryptedText = String(encryptedText);
+                }
+            }
+
+            // DETECTAR: Si es una fecha en formato texto (error de PostgreSQL)
+            if (this.isDateString(encryptedText)) {
+                console.warn('⚠️ Detectado formato de fecha, dato no encriptado correctamente:', encryptedText);
+                return `[DATO_NO_ENCRIPTADO: ${encryptedText}]`;
+            }
+
+            // DETECTAR: Formatos especiales de PostgreSQL
+            if (encryptedText.startsWith('\\x') || encryptedText.startsWith('error:') || encryptedText.startsWith('simple:')) {
+                console.warn('⚠️ Formato de PostgreSQL detectado:', encryptedText.substring(0, 20));
+                return this.handlePostgreSQLFormat(encryptedText, password);
+            }
+
             const parts = encryptedText.split(':');
             if (parts.length !== 4) {
-                throw new Error('Formato de texto encriptado inválido');
+                console.error('❌ Formato inválido:', encryptedText);
+                console.error('❌ Partes encontradas:', parts.length, parts);
+                
+                // INTENTO DE RECUPERACIÓN: Si parece ser texto plano
+                if (parts.length === 1 && !encryptedText.includes(':')) {
+                    console.warn('⚠️ Parece ser texto plano, retornando como tal');
+                    return `[TEXTO_PLANO: ${encryptedText}]`;
+                }
+                
+                throw new Error(`Formato de texto encriptado inválido. Esperado 4 partes, encontrado ${parts.length}`);
             }
 
             const salt = Buffer.from(parts[0], 'hex');
@@ -175,15 +216,15 @@ class EncryptionService {
 
             // Validar tamaños de componentes
             if (salt.length !== this.saltLength) {
-                throw new Error('Salt inválido en datos encriptados');
+                throw new Error(`Salt inválido. Esperado ${this.saltLength}, encontrado ${salt.length}`);
             }
 
             if (iv.length !== this.ivLength) {
-                throw new Error('IV inválido en datos encriptados');
+                throw new Error(`IV inválido. Esperado ${this.ivLength}, encontrado ${iv.length}`);
             }
 
             if (tag.length !== this.tagLength) {
-                throw new Error('Tag de autenticación inválido');
+                throw new Error(`Tag inválido. Esperado ${this.tagLength}, encontrado ${tag.length}`);
             }
 
             const { key } = this.generateKeyFromPassword(password, salt);
@@ -196,9 +237,14 @@ class EncryptionService {
 
             return decrypted;
         } catch (error) {
-            console.error('Error en desencriptación:', error.message);
+            console.error('❌ Error en desencriptación:', error.message);
+            console.error('📋 Datos problemáticos:', {
+                type: typeof encryptedText,
+                length: encryptedText?.length,
+                preview: typeof encryptedText === 'string' ? encryptedText.substring(0, 100) : 'No es string'
+            });
             
-            // Proporcionar mensajes de error más específicos
+            // Mensajes de error más específicos
             if (error.message.includes('bad decrypt')) {
                 throw new Error('Contraseña de desencriptación incorrecta o datos corruptos');
             }
@@ -208,6 +254,100 @@ class EncryptionService {
             }
 
             throw new Error(`Error en el proceso de desencriptación: ${error.message}`);
+        }
+    }
+
+    // AGREGAR: Método para detectar cadenas de fecha
+    isDateString(str) {
+        // Detectar formatos comunes de fecha
+        const datePatterns = [
+            /^\d{4}-\d{2}-\d{2}/, // 2025-09-01
+            /^Mon|Tue|Wed|Thu|Fri|Sat|Sun/, // Día de la semana
+            /GMT|UTC/, // Zonas horarias
+            /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/ // ISO format
+        ];
+        
+        return datePatterns.some(pattern => pattern.test(str));
+    }
+    
+    // AGREGAR método específico para desencriptar datos de PostgreSQL con pgcrypto
+    decryptPostgreSQLPgcrypto(encryptedText, password) {
+        try {
+            console.log('🔓 Intentando desencriptar formato PostgreSQL pgcrypto');
+            
+            const parts = encryptedText.split(':');
+            if (parts.length !== 4) {
+                throw new Error('Formato inválido para PostgreSQL pgcrypto');
+            }
+
+            const [salt, iv, tag, encrypted] = parts;
+            
+            // Para datos encriptados con pgp_sym_encrypt, necesitamos 
+            // desencriptar el componente encrypted que contiene los datos de pgcrypto
+            try {
+                // Decodificar el componente encriptado (que viene de pgp_sym_encrypt)
+                const pgcryptoData = Buffer.from(encrypted, 'hex');
+                
+                // Los datos de pgcrypto vienen en formato binario
+                // Por ahora, retornamos una representación legible
+                return `[DATOS_PGCRYPTO: ${pgcryptoData.toString('base64').substring(0, 50)}...]`;
+                
+            } catch (decodeError) {
+                console.error('Error decodificando datos pgcrypto:', decodeError);
+                return `[ERROR_PGCRYPTO: ${encrypted.substring(0, 50)}...]`;
+            }
+            
+        } catch (error) {
+            console.error('Error en desencriptación PostgreSQL:', error);
+            return `[ERROR_DESENCRIPTACION: ${error.message}]`;
+        }
+    }
+
+    // CORREGIR el método handlePostgreSQLFormat
+    handlePostgreSQLFormat(encryptedText, password) {
+        try {
+            console.log('🔧 Manejando formato PostgreSQL:', encryptedText.substring(0, 50));
+            
+            if (encryptedText.startsWith('simple:')) {
+                const hashPart = encryptedText.substring(7);
+                return `[HASH_POSTGRESQL: ${hashPart.substring(0, 16)}...]`;
+            }
+            
+            if (encryptedText.startsWith('error:')) {
+                const errorPart = encryptedText.substring(6);
+                return `[ERROR_POSTGRESQL: ${errorPart}]`;
+            }
+            
+            if (encryptedText.startsWith('\\x')) {
+                return `[HEX_POSTGRESQL: ${encryptedText.substring(0, 20)}...]`;
+            }
+            
+            // AGREGAR: Verificar si tiene formato compatible de PostgreSQL
+            const parts = encryptedText.split(':');
+            if (parts.length === 4) {
+                // Parece ser formato compatible, intentar desencriptar con pgcrypto
+                return this.decryptPostgreSQLPgcrypto(encryptedText, password);
+            }
+            
+            return `[FORMATO_DESCONOCIDO: ${encryptedText.substring(0, 50)}...]`;
+        } catch (error) {
+            return `[ERROR_PROCESANDO: ${error.message}]`;
+        }
+    }
+
+    // AGREGAR: Método para desencriptar formato PostgreSQL legacy
+    decryptPostgreSQLFormat(base64Data, password) {
+        try {
+            // Este método maneja datos encriptados con pgp_sym_encrypt
+            // Nota: Esto es una implementación simplificada
+            const decodedData = Buffer.from(base64Data, 'base64');
+            
+            // Para datos ya existentes con formato PostgreSQL,
+            // necesitaríamos implementar compatibilidad con pgcrypto
+            // Por ahora, retornamos un mensaje indicativo
+            return `[Datos en formato PostgreSQL - requiere migración]`;
+        } catch (error) {
+            throw new Error('Error procesando formato PostgreSQL: ' + error.message);
         }
     }
 

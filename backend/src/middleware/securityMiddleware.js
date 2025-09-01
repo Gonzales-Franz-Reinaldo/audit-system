@@ -203,7 +203,8 @@ class SecurityMiddleware {
         };
     };
 
-    // Middleware para validación de parámetros de auditoría
+
+    // Middleware para validación de parámetros de auditoría - CORREGIDO
     static validateAuditParams = async (req, res, next) => {
         try {
             console.log('🔍 Validando parámetros de auditoría...');
@@ -216,21 +217,39 @@ class SecurityMiddleware {
                 }
             });
 
-            const { tableName } = req.params;
+            // CORREGIR: Obtener tableName de params Y permitir nombres de auditoría
+            const { tableName, auditTableName } = req.params;
             const { type, config } = req.body;
 
-            // Validar nombre de tabla
-            if (!tableName || !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableName)) {
-                console.error('❌ Nombre de tabla inválido:', tableName);
+            // Obtener el nombre de tabla correcto (puede venir en params como tableName o auditTableName)
+            const tableNameToValidate = tableName || auditTableName;
+
+            console.log('🔍 Validando tabla:', tableNameToValidate);
+
+            // CORREGIR: Validar nombre de tabla - permitir prefijo aud_
+            if (!tableNameToValidate) {
+                console.error('❌ Nombre de tabla faltante');
+                return res.status(400).json({
+                    success: false,
+                    error: 'Nombre de tabla requerido'
+                });
+            }
+
+            // CORREGIR: Regex más permisiva que permite aud_ prefix
+            if (!/^(aud_)?[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableNameToValidate)) {
+                console.error('❌ Nombre de tabla inválido:', tableNameToValidate);
+
                 await systemAuditService.logSecurityEvent(
                     'INVALID_TABLE_NAME',
                     req.ip,
                     {
+                        tableName: tableNameToValidate,
                         ip: req.ip,
-                        tableName: tableName || 'undefined',
-                        severity: 'medium'
+                        userAgent: req.get('User-Agent'),
+                        severity: 'low'
                     }
                 );
+
                 return res.status(400).json({
                     success: false,
                     error: 'Nombre de tabla inválido'
@@ -239,22 +258,19 @@ class SecurityMiddleware {
 
             // Validar tipo de base de datos
             if (!type || !['mysql', 'postgresql'].includes(type.toLowerCase())) {
-                console.error('❌ Tipo de BD inválido:', type);
+                console.error('❌ Tipo de DB inválido:', type);
                 return res.status(400).json({
                     success: false,
-                    error: 'Tipo de base de datos no soportado'
+                    error: 'Tipo de base de datos inválido'
                 });
             }
 
             // Validar configuración de conexión
             if (!config || !config.host || !config.database) {
-                console.error('❌ Configuración incompleta:', {
-                    host: !!config?.host,
-                    database: !!config?.database
-                });
+                console.error('❌ Configuración inválida:', !!config);
                 return res.status(400).json({
                     success: false,
-                    error: 'Configuración de base de datos incompleta'
+                    error: 'Configuración de conexión incompleta'
                 });
             }
 

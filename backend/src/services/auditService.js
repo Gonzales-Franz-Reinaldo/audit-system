@@ -14,28 +14,30 @@ class AuditService {
 
             if (dbType === 'mysql') {
                 query = `
-                    SELECT 
-                        table_name,
-                        table_rows as record_count
-                    FROM information_schema.tables 
-                    WHERE table_schema = ? 
-                    AND table_name LIKE 'aud_%'
-                    ORDER BY table_name
-                `;
+                SELECT 
+                    table_name,
+                    table_rows as record_count
+                FROM information_schema.tables 
+                WHERE table_schema = ? 
+                AND table_name LIKE 'aud_%'
+                ORDER BY table_name
+            `;
                 params = [config.database];
             } else if (dbType === 'postgresql') {
                 // CORREGIR: Query simplificado y funcional para PostgreSQL
                 query = `
-                    SELECT 
-                        tablename as table_name,
-                        0 as record_count
-                    FROM pg_tables 
-                    WHERE schemaname = $1 
-                    AND tablename LIKE 'aud_%'
-                    ORDER BY tablename
-                `;
+                SELECT 
+                    tablename as table_name
+                FROM pg_tables 
+                WHERE schemaname = $1 
+                AND tablename LIKE 'aud_%'
+                ORDER BY tablename
+            `;
                 params = [config.schema || 'public'];
             }
+
+            console.log('🔍 Query para obtener tablas de auditoría:', query);
+            console.log('📊 Parámetros:', params);
 
             let result;
             if (dbType === 'mysql') {
@@ -45,15 +47,18 @@ class AuditService {
                 try {
                     const queryResult = await client.query(query, params);
                     result = queryResult.rows;
-                    
+
+                    console.log('📋 Resultado bruto de PostgreSQL:', result);
+
                     // MEJORAR: Obtener conteo real por separado para cada tabla
                     for (let i = 0; i < result.length; i++) {
                         try {
                             const countQuery = `SELECT COUNT(*) as count FROM "${config.schema || 'public'}"."${result[i].table_name}"`;
                             const countResult = await client.query(countQuery);
                             result[i].record_count = parseInt(countResult.rows[0].count) || 0;
+                            console.log(`📊 Conteo para ${result[i].table_name}: ${result[i].record_count}`);
                         } catch (countError) {
-                            console.warn(`Error contando registros en ${result[i].table_name}:`, countError.message);
+                            console.warn(`⚠️ Error contando registros en ${result[i].table_name}:`, countError.message);
                             result[i].record_count = 0;
                         }
                     }
@@ -62,14 +67,26 @@ class AuditService {
                 }
             }
 
-            return result.map(row => ({
-                tableName: row.table_name,
-                originalTable: row.table_name.replace(this.auditTablePrefix, ''),
-                hasEncryption: true,
-                recordCount: parseInt(row.record_count) || 0
-            }));
+            console.log('📋 Tablas de auditoría encontradas:', result.length);
+            console.log('📋 Datos de tablas:', result);
+
+            // CORREGIR: Mapear correctamente los resultados
+            const auditTables = result.map(row => {
+                const originalTable = row.table_name.replace('aud_', '');
+                return {
+                    tableName: row.table_name,
+                    originalTable: originalTable,
+                    hasEncryption: true,
+                    recordCount: parseInt(row.record_count) || 0
+                };
+            });
+
+            console.log('📋 Tablas de auditoría mapeadas:', auditTables);
+
+            return auditTables;
         } catch (error) {
-            console.error('Error obteniendo tablas de auditoría:', error);
+            console.error('💥 Error obteniendo tablas de auditoría:', error);
+            console.error('📋 Stack:', error.stack);
             throw new Error(`Error al obtener tablas de auditoría: ${error.message}`);
         }
     }

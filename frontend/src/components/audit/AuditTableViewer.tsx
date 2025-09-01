@@ -1,28 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { toast } from 'react-hot-toast';
 import {
+    ArrowLeft,
     Eye,
     EyeOff,
-    Key,
-    ArrowLeft,
     RefreshCw,
-    Download,
-    Filter,
-    Search,
     Lock,
     Unlock,
-    AlertTriangle,
-    CheckCircle,
-    Loader2,
+    Search,
+    Filter,
+    Activity,
     Calendar,
-    User,
-    Activity
+    Loader2,
+    AlertTriangle,
+    ChevronLeft,
+    ChevronRight
 } from 'lucide-react';
+import { toast } from 'react-hot-toast';
 
-import { AuditTable, ConnectionInfo, AuditData } from '../../types';
 import { useApi, usePagination } from '../../hooks/useApi';
 import apiService from '../../services/api';
 import DecryptModal from './DecryptModal';
+import { AuditTable, ConnectionInfo, AuditData } from '../../types';
 
 interface AuditTableViewerProps {
     auditTable: AuditTable;
@@ -52,15 +50,49 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
         changePageSize
     } = usePagination(1, 50);
 
-    // API hooks
+    // API hooks - CORREGIDOS con verificación robusta
     const { execute: getEncryptedData, loading: encryptedLoading } = useApi(
-        apiService.getEncryptedAuditData, false
+        async (...args: [string, any, string, number, number]) => {
+            console.log('🔍 Llamando getEncryptedData con args:', args);
+            
+            // VERIFICAR que apiService esté disponible
+            if (!apiService) {
+                throw new Error('ApiService no está disponible');
+            }
+            
+            if (typeof apiService.getEncryptedAuditData !== 'function') {
+                throw new Error('Método getEncryptedAuditData no está disponible');
+            }
+            
+            return apiService.getEncryptedAuditData(...args);
+        }, 
+        false
     );
+
     const { execute: getDecryptedData, loading: decryptedLoading } = useApi(
-        apiService.getDecryptedAuditData, false
+        async (...args: [string, any, string, string, number, number]) => {
+            console.log('🔍 Llamando getDecryptedData con args:', args);
+            
+            if (!apiService || typeof apiService.getDecryptedAuditData !== 'function') {
+                throw new Error('ApiService o getDecryptedAuditData no está disponible');
+            }
+            
+            return apiService.getDecryptedAuditData(...args);
+        }, 
+        false
     );
+
     const { execute: validatePassword, loading: validateLoading } = useApi(
-        apiService.validateEncryptionPassword, false
+        async (...args: [string, any, string, string]) => {
+            console.log('🔍 Llamando validatePassword con args:', args);
+            
+            if (!apiService || typeof apiService.validateEncryptionPassword !== 'function') {
+                throw new Error('ApiService o validateEncryptionPassword no está disponible');
+            }
+            
+            return apiService.validateEncryptionPassword(...args);
+        }, 
+        false
     );
 
     // Cargar datos iniciales (encriptados)
@@ -71,6 +103,8 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
     // Cargar datos encriptados
     const loadEncryptedData = async () => {
         try {
+            console.log('📊 Cargando datos encriptados...');
+            
             const data = await getEncryptedData(
                 connectionInfo.type,
                 connectionInfo.config,
@@ -79,12 +113,19 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                 (currentPage - 1) * pageSize
             );
 
+            console.log('📨 Datos encriptados recibidos (RAW):', data);
+            console.log('📨 Tipo de data:', typeof data);
+            console.log('📨 Es data.data un array?:', Array.isArray(data?.data));
+            console.log('📨 Contenido de data.data:', data?.data);
+
             if (data) {
                 setAuditData(data);
                 setTotal(data.totalRecords);
                 setIsEncrypted(true);
+                console.log('✅ Datos encriptados cargados correctamente');
             }
         } catch (error) {
+            console.error('❌ Error cargando datos encriptados:', error);
             toast.error('Error cargando datos encriptados');
         }
     };
@@ -92,6 +133,8 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
     // Cargar datos desencriptados
     const loadDecryptedData = async (key: string) => {
         try {
+            console.log('🔓 Cargando datos desencriptados...');
+            
             const data = await getDecryptedData(
                 connectionInfo.type,
                 connectionInfo.config,
@@ -101,6 +144,8 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                 (currentPage - 1) * pageSize
             );
 
+            console.log('📨 Datos desencriptados recibidos:', data);
+
             if (data) {
                 setAuditData(data);
                 setTotal(data.totalRecords);
@@ -108,26 +153,37 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                 setEncryptionKey(key);
                 setShowDecryptModal(false);
                 toast.success('Datos desencriptados exitosamente');
+                console.log('✅ Datos desencriptados cargados correctamente');
             }
         } catch (error) {
+            console.error('❌ Error desencriptando datos:', error);
             toast.error('Error desencriptando datos - Verifica tu clave');
         }
     };
 
     // Manejar desencriptación
     const handleDecrypt = async (key: string) => {
-        // Validar contraseña primero
-        const validation = await validatePassword(
-            connectionInfo.type,
-            connectionInfo.config,
-            auditTable.tableName,
-            key
-        );
+        try {
+            console.log('🔑 Validando contraseña...');
+            
+            // Validar contraseña primero
+            const validation = await validatePassword(
+                connectionInfo.type,
+                connectionInfo.config,
+                auditTable.tableName,
+                key
+            );
 
-        if (validation?.valid) {
-            await loadDecryptedData(key);
-        } else {
-            toast.error('Clave de encriptación incorrecta');
+            console.log('📨 Resultado de validación:', validation);
+
+            if (validation?.valid) {
+                await loadDecryptedData(key);
+            } else {
+                toast.error('Clave de encriptación incorrecta');
+            }
+        } catch (error) {
+            console.error('❌ Error en handleDecrypt:', error);
+            toast.error('Error validando contraseña');
         }
     };
 
@@ -139,18 +195,41 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
     };
 
     // Filtrar datos
-    const filteredData = auditData?.data.filter(record => {
-        if (!isEncrypted && searchTerm) {
-            const searchLower = searchTerm.toLowerCase();
-            return Object.values(record).some(value =>
-                value?.toString().toLowerCase().includes(searchLower)
-            );
+    // const filteredData = auditData?.data.filter(record => {
+    //     if (!isEncrypted && searchTerm) {
+    //         const searchLower = searchTerm.toLowerCase();
+    //         return Object.values(record).some(value =>
+    //             value?.toString().toLowerCase().includes(searchLower)
+    //         );
+    //     }
+    //     if (!isEncrypted && actionFilter !== 'all') {
+    //         return record.accion_sql === actionFilter;
+    //     }
+    //     return true;
+    // }) || [];
+    const filteredData = React.useMemo(() => {
+        // CORREGIR: Verificar que auditData y auditData.data existen y es un array
+        if (!auditData || !auditData.data || !Array.isArray(auditData.data)) {
+            console.warn('⚠️ auditData.data no es un array válido:', auditData);
+            return [];
         }
-        if (!isEncrypted && actionFilter !== 'all') {
-            return record.accion_sql === actionFilter;
-        }
-        return true;
-    }) || [];
+
+        return auditData.data.filter(record => {
+            if (!isEncrypted && searchTerm) {
+                const searchLower = searchTerm.toLowerCase();
+                return Object.values(record).some(value =>
+                    value?.toString().toLowerCase().includes(searchLower)
+                );
+            }
+            if (!isEncrypted && actionFilter !== 'all') {
+                return record.accion_sql === actionFilter;
+            }
+            return true;
+        });
+    }, [auditData, isEncrypted, searchTerm, actionFilter]);
+
+    // CORREGIR: También agregar verificación en el conteo de total
+    const safeTotal = auditData?.totalRecords || 0;
 
     return (
         <div className="space-y-6">
@@ -168,16 +247,14 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
 
                         <div>
                             <h2 className="text-2xl font-bold text-gray-900 flex items-center">
-                                {isEncrypted ? (
-                                    <Lock className="w-6 h-6 mr-3 text-red-500" />
-                                ) : (
-                                    <Unlock className="w-6 h-6 mr-3 text-green-500" />
-                                )}
+                                <Lock className="w-6 h-6 mr-3 text-red-600" />
                                 {auditTable.tableName}
                             </h2>
                             <p className="text-gray-600">
-                                Tabla original: {auditTable.originalTable} •
-                                Estado: {isEncrypted ? 'Encriptado' : 'Desencriptado'}
+                                Tabla original: <span className="font-medium">{auditTable.originalTable}</span> •
+                                Estado: <span className={`font-medium ${isEncrypted ? 'text-red-600' : 'text-green-600'}`}>
+                                    {isEncrypted ? 'Encriptado' : 'Desencriptado'}
+                                </span>
                             </p>
                         </div>
                     </div>
@@ -218,9 +295,7 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                         <div className="flex items-center justify-between">
                             <div>
                                 <p className="text-blue-600 text-sm font-medium">Total Registros</p>
-                                <p className="text-2xl font-bold text-blue-900">
-                                    {auditData?.totalRecords.toLocaleString() || 0}
-                                </p>
+                                <p className="text-2xl font-bold text-blue-900">{total}</p>
                             </div>
                             <Activity className="w-8 h-8 text-blue-500" />
                         </div>
@@ -279,10 +354,7 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                             />
                         </div>
 
-                        <label htmlFor="actionFilter" className="sr-only">Filtrar por acción</label>
                         <select
-                            id="actionFilter"
-                            aria-label="Filtrar por acción"
                             value={actionFilter}
                             onChange={(e) => setActionFilter(e.target.value as any)}
                             className="px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -293,10 +365,7 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                             <option value="DELETE">DELETE</option>
                         </select>
 
-                        <label htmlFor="pageSizeSelect" className="sr-only">Seleccionar cantidad por página</label>
                         <select
-                            id="pageSizeSelect"
-                            aria-label="Seleccionar cantidad por página"
                             value={pageSize}
                             onChange={(e) => changePageSize(parseInt(e.target.value))}
                             className="px-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
@@ -311,6 +380,7 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
 
             {/* Tabla de datos */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">
+                
                 {encryptedLoading || decryptedLoading ? (
                     <div className="flex justify-center items-center py-12">
                         <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
@@ -318,16 +388,18 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                             Cargando {isEncrypted ? 'datos encriptados' : 'datos desencriptados'}...
                         </span>
                     </div>
-                ) : !auditData || filteredData.length === 0 ? (
+                ) : !auditData || !Array.isArray(auditData.data) || filteredData.length === 0 ? (
                     <div className="text-center py-12">
                         <AlertTriangle className="w-12 h-12 text-gray-400 mx-auto mb-4" />
                         <h3 className="text-lg font-medium text-gray-900 mb-2">
                             No hay datos disponibles
                         </h3>
                         <p className="text-gray-500">
-                            {isEncrypted
-                                ? 'Desencripta los datos para ver el contenido'
-                                : 'No se encontraron registros con los filtros aplicados'
+                            {!auditData || !Array.isArray(auditData.data) 
+                                ? 'Error en la estructura de datos recibidos'
+                                : isEncrypted 
+                                    ? 'Desencripta los datos para ver el contenido'
+                                    : 'No se encontraron registros con los filtros aplicados'
                             }
                         </p>
                     </div>
@@ -336,82 +408,27 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                         <table className="min-w-full divide-y divide-gray-200">
                             <thead className="bg-gray-50">
                                 <tr>
-                                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                        ID
-                                    </th>
-                                    {auditData.columns.slice(1).map((column) => (
+                                    {auditData.columns?.map((column, index) => (
                                         <th
-                                            key={column.name}
+                                            key={index}
                                             className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                                         >
-                                            {isEncrypted ? 'Datos Encriptados' : column.name}
+                                            {column.name}
                                         </th>
                                     ))}
-                                    {!isEncrypted && (
-                                        <>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                <User className="w-4 h-4 inline mr-1" />
-                                                Usuario
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                <Calendar className="w-4 h-4 inline mr-1" />
-                                                Fecha
-                                            </th>
-                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                                <Activity className="w-4 h-4 inline mr-1" />
-                                                Acción
-                                            </th>
-                                        </>
-                                    )}
                                 </tr>
                             </thead>
                             <tbody className="bg-white divide-y divide-gray-200">
-                                {filteredData.map((record, index) => (
-                                    <tr key={record.id_audit_enc || index} className="hover:bg-gray-50">
-                                        <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                            {record.id_audit_enc || index + 1}
-                                        </td>
-
-                                        {isEncrypted ? (
-                                            // Mostrar datos encriptados
-                                            Object.entries(record)
-                                                .filter(([key]) => key !== 'id_audit_enc')
-                                                .slice(0, 3) // Mostrar solo las primeras 3 columnas encriptadas
-                                                .map(([value], colIndex) => (
-                                                    <td key={colIndex} className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                                        <div className="flex items-center">
-                                                            <Lock className="w-4 h-4 text-red-500 mr-2" />
-                                                            <span className="font-mono text-xs bg-gray-100 px-2 py-1 rounded">
-                                                                {value ? String(value).substring(0, 20) + '...' : 'NULL'}
-                                                            </span>
-                                                        </div>
-                                                    </td>
-                                                ))
-                                        ) : (
-                                            // Mostrar datos desencriptados
-                                            <>
-                                                {auditData.originalColumns?.slice(0, -3).map((columnName) => (
-                                                    <td key={columnName} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                        {record[columnName] || 'NULL'}
-                                                    </td>
-                                                ))}
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    {record.usuario_accion || 'N/A'}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    {record.fecha_accion ? new Date(record.fecha_accion).toLocaleString() : 'N/A'}
-                                                </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${record.accion_sql === 'INSERT' ? 'bg-green-100 text-green-800' :
-                                                            record.accion_sql === 'UPDATE' ? 'bg-yellow-100 text-yellow-800' :
-                                                                record.accion_sql === 'DELETE' ? 'bg-red-100 text-red-800' :
-                                                                    'bg-gray-100 text-gray-800'
-                                                        }`}>
-                                                        {record.accion_sql || 'UNKNOWN'}
-                                                    </span>
-                                                </td>
-                                            </>
-                                        )}
+                                {filteredData.map((row, index) => (
+                                    <tr key={index} className="hover:bg-gray-50">
+                                        {auditData.columns?.map((column, colIndex) => (
+                                            <td
+                                                key={colIndex}
+                                                className="px-6 py-4 whitespace-nowrap text-sm text-gray-900"
+                                            >
+                                                {row[column.name] || '-'}
+                                            </td>
+                                        ))}
                                     </tr>
                                 ))}
                             </tbody>
@@ -441,15 +458,11 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                         <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
                             <div>
                                 <p className="text-sm text-gray-700">
-                                    Mostrando{' '}
-                                    <span className="font-medium">{(currentPage - 1) * pageSize + 1}</span>
-                                    {' '}a{' '}
+                                    Mostrando <span className="font-medium">{((currentPage - 1) * pageSize) + 1}</span> a{' '}
                                     <span className="font-medium">
                                         {Math.min(currentPage * pageSize, total)}
-                                    </span>
-                                    {' '}de{' '}
-                                    <span className="font-medium">{total}</span>
-                                    {' '}resultados
+                                    </span> de{' '}
+                                    <span className="font-medium">{total}</span> resultados
                                 </p>
                             </div>
                             <div>
@@ -459,31 +472,19 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                                         disabled={currentPage === 1}
                                         className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                                     >
-                                        Anterior
+                                        <ChevronLeft className="h-5 w-5" />
                                     </button>
-                                    {Array.from({ length: Math.min(5, Math.ceil(total / pageSize)) }, (_, i) => {
-                                        const page = currentPage - 2 + i;
-                                        if (page < 1 || page > Math.ceil(total / pageSize)) return null;
-
-                                        return (
-                                            <button
-                                                key={page}
-                                                onClick={() => goToPage(page)}
-                                                className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${page === currentPage
-                                                        ? 'z-10 bg-indigo-50 border-indigo-500 text-indigo-600'
-                                                        : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                                                    }`}
-                                            >
-                                                {page}
-                                            </button>
-                                        );
-                                    })}
+                                    
+                                    <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
+                                        Página {currentPage} de {Math.ceil(total / pageSize)}
+                                    </span>
+                                    
                                     <button
                                         onClick={() => goToPage(currentPage + 1)}
                                         disabled={currentPage * pageSize >= total}
                                         className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                                     >
-                                        Siguiente
+                                        <ChevronRight className="h-5 w-5" />
                                     </button>
                                 </nav>
                             </div>

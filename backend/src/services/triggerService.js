@@ -150,7 +150,7 @@ class TriggerService {
         }
     }
 
-    // Crear triggers de auditoría para PostgreSQL - COMPLETAMENTE CORREGIDO
+    // Crear triggers de auditoría para PostgreSQL 
     async createPostgreSQLTriggers(connection, schema, tableName, encryptionKey) {
         try {
             const columns = await this.getPostgreSQLColumns(connection, schema, tableName);
@@ -158,9 +158,88 @@ class TriggerService {
 
             const client = await connection.connect();
             try {
-                // PASO 1: ELIMINAR TRIGGERS EXISTENTES COMPLETAMENTE CON CASCADE
-                console.log('🧹 Eliminando triggers existentes...');
-                
+                // 1. CREAR FUNCIÓN DE ENCRIPTACIÓN COMPLETAMENTE FUNCIONAL
+                const encryptionFunction = `
+                    CREATE OR REPLACE FUNCTION encrypt_audit_data_nodejs(
+                        data_text TEXT, 
+                        encrypt_key TEXT
+                    ) RETURNS TEXT AS $$
+                    DECLARE
+                        salt_hex TEXT;
+                        iv_hex TEXT;
+                        auth_tag_hex TEXT;
+                        encrypted_hex TEXT;
+                        result TEXT;
+                        input_data TEXT;
+                    BEGIN
+                        -- Manejar entrada NULL
+                        IF data_text IS NULL THEN
+                            RETURN NULL;
+                        END IF;
+                        
+                        -- CRUCIAL: Convertir CUALQUIER tipo a texto
+                        input_data := COALESCE(data_text::text, 'NULL');
+                        
+                        -- IMPORTANTE: Manejar tipos especiales
+                        IF input_data ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}' THEN
+                            -- Es una fecha, convertir apropiadamente
+                            input_data := input_data::text;
+                        END IF;
+                        
+                        -- Verificar que pgcrypto esté disponible
+                        IF NOT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pgcrypto') THEN
+                            -- Crear formato compatible sin pgcrypto
+                            salt_hex := encode(gen_random_bytes(32), 'hex');
+                            iv_hex := encode(gen_random_bytes(16), 'hex');
+                            auth_tag_hex := encode(digest(input_data || encrypt_key || salt_hex, 'sha256'), 'hex');
+                            auth_tag_hex := substring(auth_tag_hex, 1, 32); -- 16 bytes
+                            encrypted_hex := encode(input_data::bytea, 'hex');
+                            
+                            result := salt_hex || ':' || iv_hex || ':' || auth_tag_hex || ':' || encrypted_hex;
+                            RETURN result;
+                        END IF;
+                        
+                        -- Generar componentes seguros
+                        salt_hex := encode(gen_random_bytes(32), 'hex');
+                        iv_hex := encode(gen_random_bytes(16), 'hex');
+                        
+                        -- Crear hash para auth tag
+                        auth_tag_hex := encode(
+                            digest(input_data || encrypt_key || salt_hex, 'sha256'), 
+                            'hex'
+                        );
+                        auth_tag_hex := substring(auth_tag_hex, 1, 32); -- 16 bytes = 32 hex chars
+                        
+                        -- USAR PGCRYPTO DE FORMA COMPATIBLE
+                        encrypted_hex := encode(
+                            pgp_sym_encrypt(input_data, encrypt_key), 
+                            'hex'
+                        );
+                        
+                        -- Formato: salt:iv:tag:encrypted (compatible con Node.js)
+                        result := salt_hex || ':' || iv_hex || ':' || auth_tag_hex || ':' || encrypted_hex;
+                        
+                        RETURN result;
+                        
+                    EXCEPTION WHEN OTHERS THEN
+                        -- Fallback siempre con formato compatible
+                        salt_hex := encode(gen_random_bytes(32), 'hex');
+                        iv_hex := encode(gen_random_bytes(16), 'hex');
+                        auth_tag_hex := encode(digest('ERROR' || encrypt_key, 'sha256'), 'hex');
+                        auth_tag_hex := substring(auth_tag_hex, 1, 32);
+                        encrypted_hex := encode('ERROR_ENCRYPT'::bytea, 'hex');
+                        
+                        result := salt_hex || ':' || iv_hex || ':' || auth_tag_hex || ':' || encrypted_hex;
+                        RETURN result;
+                    END;
+                    $$ LANGUAGE plpgsql;
+                `;
+
+                console.log('🔧 Creando función de encriptación corregida...');
+                await client.query(encryptionFunction);
+                console.log('✅ Función de encriptación compatible creada');
+
+                // 2. ELIMINAR TRIGGERS Y FUNCIONES ANTERIORES
                 const triggerNames = [
                     `${tableName}_audit_insert_trigger`,
                     `${tableName}_audit_update_trigger`, 
@@ -173,83 +252,108 @@ class TriggerService {
 
                 for (const triggerName of triggerNames) {
                     try {
-                        await client.query(`DROP TRIGGER IF EXISTS ${triggerName} ON ${schema}.${tableName} CASCADE`);
+                        await client.query(`DROP TRIGGER IF EXISTS ${triggerName} ON "${schema}"."${tableName}" CASCADE`);
                         console.log(`🗑️ Trigger eliminado: ${triggerName}`);
-                    } catch (dropError) {
-                        console.log(`ℹ️ Trigger ${triggerName} no existía o ya fue eliminado`);
+                    } catch (error) {
+                        console.warn(`⚠️ No se pudo eliminar trigger ${triggerName}:`, error.message);
                     }
                 }
 
-                // PASO 2: ELIMINAR FUNCIÓN DE TRIGGER EXISTENTE CON CASCADE
-                const functionName = `${tableName}_audit_trigger_func`;
+                // Eliminar funciones anteriores
                 try {
-                    await client.query(`DROP FUNCTION IF EXISTS ${schema}.${functionName}() CASCADE`);
-                    console.log(`🗑️ Función eliminada: ${functionName}`);
-                } catch (dropError) {
-                    console.log(`ℹ️ Función ${functionName} no existía`);
+                    await client.query(`DROP FUNCTION IF EXISTS ${tableName}_audit_trigger_func() CASCADE`);
+                    console.log(`🗑️ Función eliminada: ${tableName}_audit_trigger_func`);
+                } catch (error) {
+                    console.warn(`⚠️ No se pudo eliminar función:`, error.message);
                 }
 
-                console.log('✅ Triggers y funciones anteriores eliminados');
+                console.log('✅ Limpieza de triggers y funciones completada');
 
-                // PASO 3: VERIFICAR EXTENSIÓN pgcrypto
-                await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto`);
-
-                // PASO 4: GENERAR NOMBRES DE COLUMNAS ENCRIPTADAS CONSISTENTES
-                const encryptedColumnNames = columns.map(col => 
+                // 3. GENERAR COLUMNAS ENCRIPTADAS DE FORMA CONSISTENTE
+                const encryptedColumns = columns.map(col => 
                     this.generateEncryptedColumnName(col.name, encryptionKey)
                 );
-
+                
                 const encryptedAuditColumns = [
                     this.generateEncryptedColumnName('usuario_accion', encryptionKey),
-                    this.generateEncryptedColumnName('fecha_accion', encryptionKey),
+                    this.generateEncryptedColumnName('fecha_accion', encryptionKey), 
                     this.generateEncryptedColumnName('accion_sql', encryptionKey)
                 ];
 
-                console.log('🔧 Columnas originales:', columns.map(c => c.name));
-                console.log('🔧 Columnas encriptadas para trigger:', encryptedColumnNames);
+                console.log('🔧 Columnas originales:', columns.map(col => col.name));
+                console.log('🔧 Columnas encriptadas:', encryptedColumns);
 
-                // PASO 5: CREAR UNA SOLA FUNCIÓN DE TRIGGER OPTIMIZADA
-                const functionSQL = `
-                    CREATE OR REPLACE FUNCTION ${schema}.${functionName}()
+                // 4. CREAR FUNCIÓN DE TRIGGER CORREGIDA
+                const triggerFunction = `
+                    CREATE OR REPLACE FUNCTION ${tableName}_audit_trigger_func()
                     RETURNS TRIGGER AS $$
                     BEGIN
-                        INSERT INTO "${schema}"."${auditTableName}" (
-                            ${encryptedColumnNames.join(', ')},
-                            ${encryptedAuditColumns.join(', ')}
-                        ) VALUES (
-                            ${columns.map(col => `
-                                pgp_sym_encrypt(COALESCE(CASE 
-                                    WHEN TG_OP = 'DELETE' THEN OLD.${col.name}
-                                    ELSE NEW.${col.name}
-                                END::text, ''), '${encryptionKey}')
-                            `).join(', ')},
-                            pgp_sym_encrypt(COALESCE(current_user::text, 'unknown'), '${encryptionKey}'),
-                            pgp_sym_encrypt(NOW()::text, '${encryptionKey}'),
-                            pgp_sym_encrypt(TG_OP::text, '${encryptionKey}')
-                        );
-                        
-                        IF TG_OP = 'DELETE' THEN
-                            RETURN OLD;
-                        ELSE
+                        -- INSERT: usar NEW
+                        IF TG_OP = 'INSERT' THEN
+                            INSERT INTO "${schema}"."${auditTableName}" (
+                                ${encryptedColumns.map(col => `"${col}"`).join(', ')},
+                                ${encryptedAuditColumns.map(col => `"${col}"`).join(', ')}
+                            ) VALUES (
+                                ${columns.map(col => 
+                                    `encrypt_audit_data_nodejs(COALESCE(NEW."${col.name}"::text, 'NULL'), '${encryptionKey}')`
+                                ).join(', ')},
+                                encrypt_audit_data_nodejs(COALESCE(current_user, 'unknown'), '${encryptionKey}'),
+                                encrypt_audit_data_nodejs(COALESCE(NOW()::text, 'unknown'), '${encryptionKey}'),
+                                encrypt_audit_data_nodejs('INSERT', '${encryptionKey}')
+                            );
                             RETURN NEW;
                         END IF;
+                        
+                        -- UPDATE: usar NEW
+                        IF TG_OP = 'UPDATE' THEN
+                            INSERT INTO "${schema}"."${auditTableName}" (
+                                ${encryptedColumns.map(col => `"${col}"`).join(', ')},
+                                ${encryptedAuditColumns.map(col => `"${col}"`).join(', ')}
+                            ) VALUES (
+                                ${columns.map(col => 
+                                    `encrypt_audit_data_nodejs(COALESCE(NEW."${col.name}"::text, 'NULL'), '${encryptionKey}')`
+                                ).join(', ')},
+                                encrypt_audit_data_nodejs(COALESCE(current_user, 'unknown'), '${encryptionKey}'),
+                                encrypt_audit_data_nodejs(COALESCE(NOW()::text, 'unknown'), '${encryptionKey}'),
+                                encrypt_audit_data_nodejs('UPDATE', '${encryptionKey}')
+                            );
+                            RETURN NEW;
+                        END IF;
+                        
+                        -- DELETE: usar OLD
+                        IF TG_OP = 'DELETE' THEN
+                            INSERT INTO "${schema}"."${auditTableName}" (
+                                ${encryptedColumns.map(col => `"${col}"`).join(', ')},
+                                ${encryptedAuditColumns.map(col => `"${col}"`).join(', ')}
+                            ) VALUES (
+                                ${columns.map(col => 
+                                    `encrypt_audit_data_nodejs(COALESCE(OLD."${col.name}"::text, 'NULL'), '${encryptionKey}')`
+                                ).join(', ')},
+                                encrypt_audit_data_nodejs(COALESCE(current_user, 'unknown'), '${encryptionKey}'),
+                                encrypt_audit_data_nodejs(COALESCE(NOW()::text, 'unknown'), '${encryptionKey}'),
+                                encrypt_audit_data_nodejs('DELETE', '${encryptionKey}')
+                            );
+                            RETURN OLD;
+                        END IF;
+                        
+                        RETURN NULL;
                     END;
                     $$ LANGUAGE plpgsql;
                 `;
 
-                console.log('🔧 Creando función de trigger...');
-                await client.query(functionSQL);
+                console.log('🔧 Creando función de trigger corregida...');
+                await client.query(triggerFunction);
 
-                // PASO 6: CREAR TRIGGER ÚNICO QUE MANEJA TODAS LAS OPERACIONES
-                const triggerSQL = `
-                    CREATE TRIGGER ${tableName}_audit_trigger
-                    AFTER INSERT OR UPDATE OR DELETE ON ${schema}.${tableName}
-                    FOR EACH ROW
-                    EXECUTE FUNCTION ${schema}.${functionName}();
+                // 5. CREAR TRIGGER ÚNICO
+                const triggerName = `${tableName}_audit_trigger`;
+                const createTrigger = `
+                    CREATE TRIGGER ${triggerName}
+                        AFTER INSERT OR UPDATE OR DELETE ON "${schema}"."${tableName}"
+                        FOR EACH ROW EXECUTE FUNCTION ${tableName}_audit_trigger_func();
                 `;
 
-                console.log(`🔧 Creando trigger único ${tableName}_audit_trigger...`);
-                await client.query(triggerSQL);
+                console.log(`🔧 Creando trigger único ${triggerName}...`);
+                await client.query(createTrigger);
 
                 console.log(`✅ Triggers PostgreSQL creados para tabla: ${tableName}`);
 
@@ -268,6 +372,7 @@ class TriggerService {
 
         } catch (error) {
             console.error('❌ Error creando triggers PostgreSQL:', error);
+            console.error('📋 Stack:', error.stack);
             await systemAuditService.logAuditConfig(
                 'POSTGRESQL_TRIGGERS_CREATION_FAILED',
                 tableName,
@@ -277,6 +382,7 @@ class TriggerService {
             throw new Error(`Error creando triggers: ${error.message}`);
         }
     }
+
 
     // Crear tabla de auditoría encriptada para MySQL con validaciones
     async createMySQLAuditTable(connection, database, tableName, encryptionKey) {

@@ -42,7 +42,7 @@ function App() {
     React.useEffect(() => {
         console.log('🔍 Verificando ApiService en App...');
         const debug = debugApiService();
-        
+
         // Verificar que está inicializado
         if (!debug || !debug.isInitialized()) {
             console.error('💥 ApiService no está inicializado correctamente');
@@ -85,7 +85,7 @@ function App() {
                 throw new Error('ApiService o getTables no está disponible');
             }
             return apiService.getTables(type, config);
-        }, 
+        },
         false
     );
 
@@ -95,7 +95,7 @@ function App() {
                 throw new Error('ApiService o getAuditTables no está disponible');
             }
             return apiService.getAuditTables(...args);
-        }, 
+        },
         false
     );
 
@@ -104,7 +104,7 @@ function App() {
         console.log('🔗 Iniciando conexión:', { type, config });
         console.log('🔍 ApiService disponible:', !!apiService);
         console.log('🔍 testConnection disponible:', !!apiService?.testConnection);
-        
+
         try {
             const result = await testConnection(type, config);
             console.log('📨 Resultado de testConnection:', result);
@@ -140,20 +140,34 @@ function App() {
             // Cargar tablas
             const tablesResult = await getTables(type, config);
             console.log('📋 Resultado de getTables:', tablesResult);
-            
+
             if (tablesResult && tablesResult.data) {
                 setTables(tablesResult.data);
             }
 
-            // Cargar tablas de auditoría
+            // Cargar tablas de auditoría - CON MÁS LOGGING
+            console.log('🔒 Cargando tablas de auditoría...');
             const auditResult = await getAuditTables(type, config);
-            console.log('🔒 Resultado de getAuditTables:', auditResult);
-            
-            if (auditResult && auditResult.auditTables) {
-                setAuditTables(auditResult.auditTables);
+            console.log('🔒 Resultado COMPLETO de getAuditTables:', auditResult);
+
+            if (auditResult) {
+                console.log('🔒 auditTables en resultado:', auditResult.auditTables);
+                console.log('🔒 Longitud de auditTables:', auditResult.auditTables?.length);
+
+                if (auditResult.auditTables && Array.isArray(auditResult.auditTables)) {
+                    setAuditTables(auditResult.auditTables);
+                    console.log('✅ auditTables establecidas:', auditResult.auditTables);
+                } else {
+                    console.warn('⚠️ auditTables no es un array válido:', auditResult.auditTables);
+                    setAuditTables([]);
+                }
+            } else {
+                console.warn('⚠️ auditResult es null/undefined');
+                setAuditTables([]);
             }
         } catch (error) {
             console.error('❌ Error cargando datos iniciales:', error);
+            setAuditTables([]); // Asegurar que se inicialice
         }
     };
 

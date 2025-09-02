@@ -317,11 +317,11 @@ class TriggerService {
             return `encrypt_audit_data_nodejs(NEW.${col.name}::TEXT, '${encryptionKey}')`;
         }).join(',\n                ');
 
-        // CORREGIR: Mapear las columnas de auditoría a valores (sin asignación)
+        // usuario_accion = current_user, fecha_accion = CURRENT_TIMESTAMP, accion_sql = TG_OP
         const auditValues = [
-            `encrypt_audit_data_nodejs(TG_OP::TEXT, '${encryptionKey}')`, // usuario_accion -> accion_sql
-            `encrypt_audit_data_nodejs(CURRENT_TIMESTAMP::TEXT, '${encryptionKey}')`, // fecha_accion
-            `encrypt_audit_data_nodejs(TG_OP::TEXT, '${encryptionKey}')` // accion_sql
+            `encrypt_audit_data_nodejs(current_user::TEXT, '${encryptionKey}')`,
+            `encrypt_audit_data_nodejs(CURRENT_TIMESTAMP::TEXT, '${encryptionKey}')`,
+            `encrypt_audit_data_nodejs(TG_OP::TEXT, '${encryptionKey}')`
         ].join(',\n                ');
 
         // CORREGIR: Valores para DELETE (usando OLD en lugar de NEW)
@@ -333,14 +333,10 @@ class TriggerService {
             CREATE OR REPLACE FUNCTION ${tableName}_audit_trigger_func()
             RETURNS TRIGGER AS $$
             BEGIN
-                -- Validar que la función de encriptación existe
-                IF NOT EXISTS (
-                    SELECT 1 FROM pg_proc WHERE proname = 'encrypt_audit_data_nodejs'
-                ) THEN
+                IF NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'encrypt_audit_data_nodejs') THEN
                     RAISE EXCEPTION 'Función de encriptación no encontrada';
                 END IF;
 
-                -- Insertar registro de auditoría según el tipo de operación
                 IF TG_OP = 'INSERT' THEN
                     INSERT INTO "${schema}"."aud_${tableName}" (
                         ${encryptedColumns.join(', ')},
@@ -350,7 +346,6 @@ class TriggerService {
                         ${auditValues}
                     );
                     RETURN NEW;
-                    
                 ELSIF TG_OP = 'UPDATE' THEN
                     INSERT INTO "${schema}"."aud_${tableName}" (
                         ${encryptedColumns.join(', ')},
@@ -360,7 +355,6 @@ class TriggerService {
                         ${auditValues}
                     );
                     RETURN NEW;
-                    
                 ELSIF TG_OP = 'DELETE' THEN
                     INSERT INTO "${schema}"."aud_${tableName}" (
                         ${encryptedColumns.join(', ')},
@@ -371,7 +365,6 @@ class TriggerService {
                     );
                     RETURN OLD;
                 END IF;
-                
                 RETURN NULL;
             END;
             $$ LANGUAGE plpgsql SECURITY DEFINER;
@@ -599,7 +592,8 @@ class TriggerService {
                         ${encryptedAuditColumns.join(', ')}
                     ) VALUES (
                         ${columns.map(col => `encrypt_audit_data_${tableName}(IFNULL(NEW.\`${col.name}\`, ''), '${encryptionKey}')`).join(', ')},
-                        encrypt_audit_data_${tableName}(USER(), '${encryptionKey}'),
+                        -- NUEVO: valores audit (usuario_accion, fecha_accion, accion_sql)
+                        encrypt_audit_data_${tableName}(CURRENT_USER(), '${encryptionKey}'),
                         encrypt_audit_data_${tableName}(NOW(), '${encryptionKey}'),
                         encrypt_audit_data_${tableName}('INSERT', '${encryptionKey}')
                     );
@@ -618,7 +612,8 @@ class TriggerService {
                         ${encryptedAuditColumns.join(', ')}
                     ) VALUES (
                         ${columns.map(col => `encrypt_audit_data_${tableName}(IFNULL(OLD.\`${col.name}\`, ''), '${encryptionKey}')`).join(', ')},
-                        encrypt_audit_data_${tableName}(USER(), '${encryptionKey}'),
+                        -- NUEVO: valores audit (usuario_accion, fecha_accion, accion_sql)
+                        encrypt_audit_data_${tableName}(CURRENT_USER(), '${encryptionKey}'),
                         encrypt_audit_data_${tableName}(NOW(), '${encryptionKey}'),
                         encrypt_audit_data_${tableName}('UPDATE', '${encryptionKey}')
                     );
@@ -637,7 +632,8 @@ class TriggerService {
                         ${encryptedAuditColumns.join(', ')}
                     ) VALUES (
                         ${columns.map(col => `encrypt_audit_data_${tableName}(IFNULL(OLD.\`${col.name}\`, ''), '${encryptionKey}')`).join(', ')},
-                        encrypt_audit_data_${tableName}(USER(), '${encryptionKey}'),
+                        -- NUEVO: valores audit (usuario_accion, fecha_accion, accion_sql)
+                        encrypt_audit_data_${tableName}(CURRENT_USER(), '${encryptionKey}'),
                         encrypt_audit_data_${tableName}(NOW(), '${encryptionKey}'),
                         encrypt_audit_data_${tableName}('DELETE', '${encryptionKey}')
                     );

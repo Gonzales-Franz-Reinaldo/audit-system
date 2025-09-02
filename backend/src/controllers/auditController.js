@@ -466,23 +466,20 @@ class AuditController {
                 {
                     recordCount: auditData.data.length,
                     duration,
-                    traceId,
-                    encryptionUsed: true
+                    traceId
                 }
             );
 
-            console.log('📋 Datos desencriptados obtenidos:', auditData.data.length, 'registros');
+            console.log('📋 Datos desencriptados obtenidos:', auditData.data.length);
             console.log('🔓 === FIN VER DATOS DESENCRIPTADOS ===');
 
-            // CORREGIR: No anidar auditData dentro de otra propiedad data
             res.json({
                 success: true,
-                ...auditData,  // Esto expande: data, columns, totalRecords, isEncrypted
+                ...auditData,
                 traceId
             });
         } catch (error) {
             const duration = Date.now() - startTime;
-
             console.error('💥 Error obteniendo datos desencriptados:', error);
 
             await systemAuditService.logDataAccess(
@@ -494,14 +491,13 @@ class AuditController {
                     success: false,
                     error: error.message,
                     duration,
-                    traceId,
-                    encryptionUsed: true
+                    traceId
                 }
             );
 
             res.status(500).json({
                 success: false,
-                error: 'Error obteniendo datos de auditoría desencriptados',
+                error: 'Error obteniendo datos desencriptados',
                 details: error.message,
                 traceId
             });

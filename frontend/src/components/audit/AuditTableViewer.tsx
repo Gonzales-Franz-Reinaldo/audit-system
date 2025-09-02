@@ -165,18 +165,19 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
     const handleDecrypt = async (key: string) => {
         try {
             console.log('🔑 Validando contraseña...');
-            
-            // Validar contraseña primero
             const validation = await validatePassword(
                 connectionInfo.type,
                 connectionInfo.config,
                 auditTable.tableName,
                 key
             );
-
             console.log('📨 Resultado de validación:', validation);
 
-            if (validation?.valid) {
+            // Aceptar ambas estructuras: {valid,...} o {data:{valid,...}}
+            const isValid = (validation && (validation as any).valid) ||
+                            (validation && (validation as any).data && (validation as any).data.valid);
+
+            if (isValid) {
                 await loadDecryptedData(key);
             } else {
                 toast.error('Clave de encriptación incorrecta');

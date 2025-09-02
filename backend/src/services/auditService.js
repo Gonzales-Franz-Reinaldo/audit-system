@@ -137,6 +137,8 @@ class AuditService {
     // Desencriptar datos de auditoría
     async getDecryptedAuditData(dbType, connection, config, auditTableName, encryptionKey, limit = 100, offset = 0) {
         try {
+            console.log('🔓 === INICIO getDecryptedAuditData ===');
+            
             // Primero obtener los datos encriptados
             const encryptedData = await this.getEncryptedAuditData(dbType, connection, config, auditTableName, limit, offset);
 
@@ -148,46 +150,70 @@ class AuditService {
             const auditColumns = ['usuario_accion', 'fecha_accion', 'accion_sql'];
             const allOriginalColumns = [...originalColumns.map(col => col.name), ...auditColumns];
 
+            console.log('📋 Columnas originales a desencriptar:', allOriginalColumns);
+
             // Desencriptar cada fila
             const decryptedData = [];
 
             for (const encryptedRow of encryptedData.data) {
                 try {
-                    const decryptedRow = { id_audit_enc: encryptedRow.id_audit_enc };
+                    const decryptedRow = { 
+                        // IMPORTANTE: Mantener las columnas NO encriptadas como están
+                        id_audit_enc: encryptedRow.id_audit_enc,
+                        created_at: encryptedRow.created_at
+                    };
 
-                    // Desencriptar cada columna
+                    // CORREGIR: Solo desencriptar columnas que realmente están encriptadas
                     for (const originalColumn of allOriginalColumns) {
                         const encryptedColumnName = encryptionService.encryptColumnName(originalColumn, encryptionKey);
 
-                        if (encryptedRow[encryptedColumnName] !== undefined && encryptedRow[encryptedColumnName] !== null) {
+                        console.log(`🔍 Buscando columna encriptada: ${encryptedColumnName} para ${originalColumn}`);
+
+                        if (encryptedRow.hasOwnProperty(encryptedColumnName) && 
+                            encryptedRow[encryptedColumnName] !== null && 
+                            encryptedRow[encryptedColumnName] !== undefined) {
+                            
                             try {
-                                decryptedRow[originalColumn] = encryptionService.decrypt(
-                                    encryptedRow[encryptedColumnName],
-                                    encryptionKey
-                                );
+                                const encryptedValue = encryptedRow[encryptedColumnName];
+                                
+                                // VERIFICAR: Solo intentar desencriptar si parece ser un valor encriptado
+                                if (typeof encryptedValue === 'string' && encryptedValue.includes(':')) {
+                                    console.log(`🔓 Desencriptando ${originalColumn}:`, encryptedValue.substring(0, 50));
+                                    decryptedRow[originalColumn] = encryptionService.decrypt(encryptedValue, encryptionKey);
+                                } else {
+                                    console.warn(`⚠️ Valor no parece encriptado para ${originalColumn}:`, typeof encryptedValue, encryptedValue);
+                                    decryptedRow[originalColumn] = `[VALOR_NO_ENCRIPTADO: ${encryptedValue}]`;
+                                }
                             } catch (decryptError) {
+                                console.error(`❌ Error desencriptando ${originalColumn}:`, decryptError.message);
                                 decryptedRow[originalColumn] = '[ERROR_DESENCRIPTACION]';
                             }
                         } else {
+                            console.log(`⚠️ Columna encriptada no encontrada: ${encryptedColumnName}`);
                             decryptedRow[originalColumn] = null;
                         }
                     }
 
                     decryptedData.push(decryptedRow);
                 } catch (rowError) {
-                    console.error('Error desencriptando fila:', rowError);
+                    console.error('❌ Error desencriptando fila:', rowError);
                     // Mantener la fila con datos de error
                     decryptedData.push({
                         id_audit_enc: encryptedRow.id_audit_enc,
+                        created_at: encryptedRow.created_at,
                         error: 'Error en desencriptación de fila'
                     });
                 }
             }
 
+            console.log('✅ Filas desencriptadas:', decryptedData.length);
+            console.log('🔓 === FIN getDecryptedAuditData ===');
+
             return {
                 data: decryptedData,
                 columns: [
                     { name: 'id_audit_enc', type: 'int' },
+                    { name: 'created_at', type: 'timestamp' },
                     ...allOriginalColumns.map(col => ({ name: col, type: 'text' }))
                 ],
                 originalColumns: allOriginalColumns,
@@ -195,10 +221,10 @@ class AuditService {
                 isEncrypted: false
             };
         } catch (error) {
-            console.error('Error desencriptando datos de auditoría:', error);
+            console.error('💥 Error desencriptando datos de auditoría:', error);
 
             // Si hay error en la desencriptación, probablemente sea contraseña incorrecta
-            if (error.message.includes('desencriptación')) {
+            if (error.message.includes('desencriptación') || error.message.includes('bad decrypt')) {
                 throw new Error('Contraseña de desencriptación incorrecta');
             }
 
@@ -303,43 +329,56 @@ class AuditService {
     // Validar contraseña de encriptación
     async validateEncryptionPassword(dbType, connection, config, auditTableName, encryptionKey) {
         try {
+            console.log('🔍 === INICIO validateEncryptionPassword ===');
+            console.log('📊 Tabla:', auditTableName, 'Clave:', !!encryptionKey);
+
             // Obtener una muestra pequeña de datos
             const encryptedData = await this.getEncryptedAuditData(dbType, connection, config, auditTableName, 1, 0);
 
             if (encryptedData.data.length === 0) {
+                console.log('⚠️ No hay datos para validar');
                 return { valid: true, message: 'No hay datos para validar' };
             }
 
-            // Intentar desencriptar el primer registro
             const firstRow = encryptedData.data[0];
-            const encryptedColumns = Object.keys(firstRow).filter(col => col !== 'id_audit_enc');
+            console.log('📋 Primera fila keys:', Object.keys(firstRow));
+
+            // CORREGIR: Filtrar SOLO las columnas encriptadas (que empiezan con 'enc_')
+            const encryptedColumns = Object.keys(firstRow).filter(col => 
+                col.startsWith('enc_') && 
+                firstRow[col] !== null && 
+                firstRow[col] !== undefined &&
+                typeof firstRow[col] === 'string'
+            );
+
+            console.log('🔐 Columnas encriptadas encontradas:', encryptedColumns);
 
             if (encryptedColumns.length === 0) {
+                console.log('⚠️ No se encontraron columnas encriptadas válidas');
                 return { valid: false, message: 'No se encontraron columnas encriptadas' };
             }
 
-            // Probar desencriptar la primera columna encriptada con valor no nulo
-            let testColumn = null;
-            for (const col of encryptedColumns) {
-                if (firstRow[col] !== null && firstRow[col] !== undefined) {
-                    testColumn = col;
-                    break;
-                }
-            }
+            // Probar desencriptar la primera columna encriptada
+            const testColumn = encryptedColumns[0];
+            const testValue = firstRow[testColumn];
 
-            if (!testColumn) {
-                return { valid: true, message: 'No hay valores para validar' };
-            }
+            console.log('🧪 Probando desencriptar columna:', testColumn);
+            console.log('🧪 Valor a probar:', typeof testValue, testValue?.substring(0, 50));
 
             try {
-                encryptionService.decrypt(firstRow[testColumn], encryptionKey);
+                const result = encryptionService.decrypt(testValue, encryptionKey);
+                console.log('✅ Desencriptación exitosa:', result?.substring(0, 20));
                 return { valid: true, message: 'Contraseña válida' };
             } catch (decryptError) {
+                console.error('❌ Error en desencriptación:', decryptError.message);
                 return { valid: false, message: 'Contraseña incorrecta' };
             }
+
         } catch (error) {
-            console.error('Error validando contraseña:', error);
+            console.error('💥 Error validando contraseña:', error);
             return { valid: false, message: 'Error en validación' };
+        } finally {
+            console.log('🔍 === FIN validateEncryptionPassword ===');
         }
     }
 

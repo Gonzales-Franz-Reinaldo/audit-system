@@ -211,83 +211,59 @@ class SecurityMiddleware {
             console.log('📨 Parámetros recibidos:', {
                 params: req.params,
                 body: {
-                    type: req.body.type,
-                    config: !!req.body.config,
-                    encryptionKey: !!req.body.encryptionKey
+                    type: req.body?.type,
+                    config: !!req.body?.config,
+                    encryptionKey: !!req.body?.encryptionKey
                 }
             });
 
-            // CORREGIR: Obtener tableName de params Y permitir nombres de auditoría
-            const { tableName, auditTableName } = req.params;
+            const { auditTableName } = req.params;
             const { type, config } = req.body;
 
-            // Obtener el nombre de tabla correcto (puede venir en params como tableName o auditTableName)
-            const tableNameToValidate = tableName || auditTableName;
+            // Validar que el nombre de tabla de auditoría sea válido
+            if (auditTableName) {
+                console.log('🔍 Validando tabla:', auditTableName);
 
-            console.log('🔍 Validando tabla:', tableNameToValidate);
+                if (!auditTableName.match(/^[a-zA-Z][a-zA-Z0-9_]*$/)) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Nombre de tabla de auditoría inválido'
+                    });
+                }
 
-            // CORREGIR: Validar nombre de tabla - permitir prefijo aud_
-            if (!tableNameToValidate) {
-                console.error('❌ Nombre de tabla faltante');
-                return res.status(400).json({
-                    success: false,
-                    error: 'Nombre de tabla requerido'
-                });
-            }
-
-            // CORREGIR: Regex más permisiva que permite aud_ prefix
-            if (!/^(aud_)?[a-zA-Z_][a-zA-Z0-9_]*$/.test(tableNameToValidate)) {
-                console.error('❌ Nombre de tabla inválido:', tableNameToValidate);
-
-                await systemAuditService.logSecurityEvent(
-                    'INVALID_TABLE_NAME',
-                    req.ip,
-                    {
-                        tableName: tableNameToValidate,
-                        ip: req.ip,
-                        userAgent: req.get('User-Agent'),
-                        severity: 'low'
-                    }
-                );
-
-                return res.status(400).json({
-                    success: false,
-                    error: 'Nombre de tabla inválido'
-                });
+                // Verificar que empiece con 'aud_' para mayor seguridad
+                if (!auditTableName.startsWith('aud_')) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'El nombre debe empezar con "aud_"'
+                    });
+                }
             }
 
             // Validar tipo de base de datos
-            if (!type || !['mysql', 'postgresql'].includes(type.toLowerCase())) {
-                console.error('❌ Tipo de DB inválido:', type);
+            if (type && !['mysql', 'postgresql', 'postgres'].includes(type.toLowerCase())) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Tipo de base de datos inválido'
+                    error: 'Tipo de base de datos no soportado'
                 });
             }
 
-            // Validar configuración de conexión
-            if (!config || !config.host || !config.database) {
-                console.error('❌ Configuración inválida:', !!config);
+            // Validar que config esté presente
+            if (type && !config) {
                 return res.status(400).json({
                     success: false,
-                    error: 'Configuración de conexión incompleta'
+                    error: 'Configuración de base de datos requerida'
                 });
             }
 
             console.log('✅ Validación de parámetros exitosa');
             next();
         } catch (error) {
-            console.error('💥 Error en validateAuditParams:', error);
-            await systemAuditService.logSystemAction(
-                'AUDIT_PARAMS_VALIDATION_ERROR',
-                req.ip,
-                { error: error.message },
-                'error'
-            );
-
-            return res.status(500).json({
+            console.error('❌ Error en validación de parámetros:', error);
+            res.status(500).json({
                 success: false,
-                error: 'Error validando parámetros'
+                error: 'Error interno en validación',
+                details: error.message
             });
         }
     };

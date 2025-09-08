@@ -1,6 +1,9 @@
 const encryptionService = require('./encryptionService');
 const triggerService = require('./triggerService');
 
+const systemAuditService = require('./systemAuditService');
+
+
 class AuditService {
     constructor() {
         this.auditTablePrefix = 'aud_';
@@ -138,7 +141,7 @@ class AuditService {
     async getDecryptedAuditData(dbType, connection, config, auditTableName, encryptionKey, limit = 100, offset = 0) {
         try {
             console.log('🔓 === INICIO getDecryptedAuditData ===');
-            
+
             // Primero obtener los datos encriptados
             const encryptedData = await this.getEncryptedAuditData(dbType, connection, config, auditTableName, limit, offset);
 
@@ -157,7 +160,7 @@ class AuditService {
 
             for (const encryptedRow of encryptedData.data) {
                 try {
-                    const decryptedRow = { 
+                    const decryptedRow = {
                         // IMPORTANTE: Mantener las columnas NO encriptadas como están
                         id_audit_enc: encryptedRow.id_audit_enc,
                         created_at: encryptedRow.created_at
@@ -169,13 +172,13 @@ class AuditService {
 
                         console.log(`🔍 Buscando columna encriptada: ${encryptedColumnName} para ${originalColumn}`);
 
-                        if (encryptedRow.hasOwnProperty(encryptedColumnName) && 
-                            encryptedRow[encryptedColumnName] !== null && 
+                        if (encryptedRow.hasOwnProperty(encryptedColumnName) &&
+                            encryptedRow[encryptedColumnName] !== null &&
                             encryptedRow[encryptedColumnName] !== undefined) {
-                            
+
                             try {
                                 const encryptedValue = encryptedRow[encryptedColumnName];
-                                
+
                                 // VERIFICAR: Solo intentar desencriptar si parece ser un valor encriptado
                                 if (typeof encryptedValue === 'string' && encryptedValue.includes(':')) {
                                     console.log(`🔓 Desencriptando ${originalColumn}:`, encryptedValue.substring(0, 50));
@@ -344,9 +347,9 @@ class AuditService {
             console.log('📋 Primera fila keys:', Object.keys(firstRow));
 
             // CORREGIR: Filtrar SOLO las columnas encriptadas (que empiezan con 'enc_')
-            const encryptedColumns = Object.keys(firstRow).filter(col => 
-                col.startsWith('enc_') && 
-                firstRow[col] !== null && 
+            const encryptedColumns = Object.keys(firstRow).filter(col =>
+                col.startsWith('enc_') &&
+                firstRow[col] !== null &&
                 firstRow[col] !== undefined &&
                 typeof firstRow[col] === 'string'
             );
@@ -438,41 +441,214 @@ class AuditService {
     // Eliminar tabla de auditoría
     async removeAuditTable(dbType, connection, config, auditTableName) {
         try {
+            console.log('🗑️ === INICIO ELIMINACIÓN AUDITORÍA ===');
+            console.log('📊 Eliminando auditoría:', auditTableName);
+
             const originalTableName = auditTableName.replace(this.auditTablePrefix, '');
+            console.log('📋 Tabla original:', originalTableName);
 
             if (dbType === 'mysql') {
-                // Eliminar triggers
+                // Eliminar triggers MySQL
+                await connection.execute(`DROP TRIGGER IF EXISTS ${originalTableName}_audit_insert`);
+                await connection.execute(`DROP TRIGGER IF EXISTS ${originalTableName}_audit_update`);
+                await connection.execute(`DROP TRIGGER IF EXISTS ${originalTableName}_audit_delete`);
+                await connection.execute(`DROP TRIGGER IF EXISTS ${originalTableName}_insert_audit`);
                 await connection.execute(`DROP TRIGGER IF EXISTS ${originalTableName}_update_audit`);
                 await connection.execute(`DROP TRIGGER IF EXISTS ${originalTableName}_delete_audit`);
 
-                // Eliminar tabla
+                // Eliminar tabla de auditoría
                 await connection.execute(`DROP TABLE IF EXISTS ${auditTableName}`);
+
+                console.log('✅ Auditoría MySQL eliminada exitosamente');
             } else if (dbType === 'postgresql') {
                 const schema = config.schema || 'public';
-
                 const client = await connection.connect();
-                try {
-                    // Eliminar trigger y función
-                    await client.query(`DROP TRIGGER IF EXISTS ${originalTableName}_audit_trigger ON ${schema}.${originalTableName}`);
-                    await client.query(`DROP FUNCTION IF EXISTS ${schema}.${originalTableName}_audit_function()`);
 
-                    // Eliminar tabla
-                    await client.query(`DROP TABLE IF EXISTS ${schema}.${auditTableName}`);
+                try {
+                    console.log('🔄 Eliminando componentes PostgreSQL...');
+
+                    // 1. Eliminar triggers (todas las variantes posibles)
+                    const triggerVariants = [
+                        `${originalTableName}_audit_trigger`,
+                        `${originalTableName}_audit_insert_trigger`,
+                        `${originalTableName}_audit_update_trigger`,
+                        `${originalTableName}_audit_delete_trigger`,
+                        `${originalTableName}_insert_audit_trigger`,
+                        `${originalTableName}_update_audit_trigger`,
+                        `${originalTableName}_delete_audit_trigger`
+                    ];
+
+                    for (const triggerName of triggerVariants) {
+                        try {
+                            await client.query(`DROP TRIGGER IF EXISTS ${triggerName} ON "${schema}"."${originalTableName}" CASCADE`);
+                            console.log(`🗑️ Trigger eliminado: ${triggerName}`);
+                        } catch (triggerError) {
+                            console.log(`ℹ️ Trigger ${triggerName} no existe o ya fue eliminado`);
+                        }
+                    }
+
+                    // 2. Eliminar función específica de trigger
+                    try {
+                        await client.query(`DROP FUNCTION IF EXISTS ${originalTableName}_audit_trigger_func() CASCADE`);
+                        console.log(`🗑️ Función específica eliminada: ${originalTableName}_audit_trigger_func`);
+                    } catch (funcError) {
+                        console.log(`ℹ️ Función ${originalTableName}_audit_trigger_func no existe`);
+                    }
+
+                    // 3. Eliminar tabla de auditoría
+                    await client.query(`DROP TABLE IF EXISTS "${schema}"."${auditTableName}" CASCADE`);
+                    console.log(`🗑️ Tabla eliminada: ${auditTableName}`);
+
+                    console.log('✅ Auditoría PostgreSQL eliminada exitosamente');
                 } finally {
                     client.release();
                 }
             }
 
+            await systemAuditService.logAuditConfig(
+                'REMOVE_TABLE_AUDIT_SUCCESS',
+                originalTableName,
+                'system',
+                { auditTableName }
+            );
+
+            console.log('🗑️ === FIN ELIMINACIÓN AUDITORÍA ===');
+
             return {
                 success: true,
-                message: `Auditoría eliminada exitosamente para ${originalTableName}`
+                message: `Auditoría eliminada exitosamente para ${originalTableName}`,
+                tableName: originalTableName,
+                auditTableName
             };
         } catch (error) {
-            console.error('Error eliminando auditoría:', error);
+            console.error('💥 Error eliminando auditoría:', error);
+
+            await systemAuditService.logAuditConfig(
+                'REMOVE_TABLE_AUDIT_ERROR',
+                auditTableName,
+                'system',
+                { error: error.message }
+            );
+
             return {
                 success: false,
-                error: error.message
+                error: error.message,
+                tableName: auditTableName
             };
+        }
+    }
+
+    // AGREGAR: Método para eliminación masiva
+    async removeAllAuditTables(dbType, connection, config) {
+        try {
+            console.log('🗑️ === INICIO ELIMINACIÓN MASIVA DE AUDITORÍAS ===');
+
+            // Obtener todas las tablas de auditoría
+            const auditTables = await this.getAuditTables(dbType, connection, config);
+            console.log(`📊 Encontradas ${auditTables.length} tablas de auditoría para eliminar`);
+
+            if (auditTables.length === 0) {
+                return {
+                    success: true,
+                    message: 'No hay tablas de auditoría para eliminar',
+                    results: [],
+                    summary: { total: 0, successful: 0, failed: 0 }
+                };
+            }
+
+            const results = [];
+
+            // Procesar eliminaciones secuencialmente para evitar conflictos
+            for (const auditTable of auditTables) {
+                console.log(`🗑️ Eliminando: ${auditTable.tableName}`);
+
+                try {
+                    const result = await this.removeAuditTable(
+                        dbType,
+                        connection,
+                        config,
+                        auditTable.tableName
+                    );
+
+                    results.push({
+                        tableName: auditTable.originalTable,
+                        auditTableName: auditTable.tableName,
+                        success: result.success,
+                        message: result.message,
+                        error: result.success ? null : result.error
+                    });
+
+                    if (result.success) {
+                        console.log(`✅ ${auditTable.tableName}: Eliminada exitosamente`);
+                    } else {
+                        console.error(`❌ ${auditTable.tableName}: ${result.error}`);
+                    }
+                } catch (error) {
+                    console.error(`💥 Error eliminando ${auditTable.tableName}:`, error);
+                    results.push({
+                        tableName: auditTable.originalTable,
+                        auditTableName: auditTable.tableName,
+                        success: false,
+                        error: error.message,
+                        message: 'Error en eliminación'
+                    });
+                }
+            }
+
+            // ELIMINACIÓN ESPECIAL: Función global de encriptación (solo una vez al final)
+            if (dbType === 'postgresql') {
+                console.log('🗑️ Eliminando función global de encriptación...');
+                const client = await connection.connect();
+                try {
+                    await client.query(`DROP FUNCTION IF EXISTS encrypt_audit_data_nodejs(text, text) CASCADE`);
+                    console.log('🗑️ Función global eliminada: encrypt_audit_data_nodejs');
+                } catch (globalFuncError) {
+                    console.log('ℹ️ Función global ya fue eliminada o no existe');
+                } finally {
+                    client.release();
+                }
+            }
+
+            const successCount = results.filter(r => r.success).length;
+            const failureCount = results.filter(r => !r.success).length;
+
+            await systemAuditService.logAuditConfig(
+                'REMOVE_ALL_AUDIT_TABLES_COMPLETED',
+                `${auditTables.length} tables`,
+                'system',
+                {
+                    total: auditTables.length,
+                    successful: successCount,
+                    failed: failureCount
+                }
+            );
+
+            console.log('📊 === RESUMEN ELIMINACIÓN MASIVA ===');
+            console.log(`✅ Eliminadas: ${successCount}`);
+            console.log(`❌ Fallidas: ${failureCount}`);
+            console.log('🗑️ === FIN ELIMINACIÓN MASIVA ===');
+
+            return {
+                success: successCount > 0,
+                message: `Eliminación masiva completada: ${successCount} exitosas, ${failureCount} fallidas`,
+                results,
+                summary: {
+                    total: auditTables.length,
+                    successful: successCount,
+                    failed: failureCount
+                }
+            };
+        } catch (error) {
+            console.error('💥 Error en eliminación masiva:', error);
+
+            await systemAuditService.logAuditConfig(
+                'REMOVE_ALL_AUDIT_TABLES_ERROR',
+                'multiple tables',
+                'system',
+                { error: error.message }
+            );
+
+            throw new Error(`Error en eliminación masiva: ${error.message}`);
         }
     }
 }

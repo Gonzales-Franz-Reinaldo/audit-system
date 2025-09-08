@@ -475,29 +475,29 @@ class ApiService {
     }
 
     // Eliminar auditoría de una tabla
-    async removeTableAudit(
-        type: DatabaseType,
-        config: DatabaseConfig,
-        auditTableName: string
-    ): Promise<{ message: string }> {
-        try {
-            this.ensureInitialized();
+    // async removeTableAudit(
+    //     type: DatabaseType,
+    //     config: DatabaseConfig,
+    //     auditTableName: string
+    // ): Promise<{ message: string }> {
+    //     try {
+    //         this.ensureInitialized();
 
-            if (!this.axiosInstance) {
-                throw new Error('Servicio API no está disponible');
-            }
+    //         if (!this.axiosInstance) {
+    //             throw new Error('Servicio API no está disponible');
+    //         }
 
-            const response = await this.axiosInstance.delete(`/audit/remove/${auditTableName}`, {
-                data: {
-                    type,
-                    config
-                }
-            });
-            return response.data;
-        } catch (error) {
-            return this.handleError(error as AxiosError);
-        }
-    }
+    //         const response = await this.axiosInstance.delete(`/audit/remove/${auditTableName}`, {
+    //             data: {
+    //                 type,
+    //                 config
+    //             }
+    //         });
+    //         return response.data;
+    //     } catch (error) {
+    //         return this.handleError(error as AxiosError);
+    //     }
+    // }
 
     // === MÉTODOS DE UTILIDAD ===
 
@@ -513,6 +513,82 @@ class ApiService {
             const response = await this.axiosInstance.get('/health');
             return response.data;
         } catch (error) {
+            return this.handleError(error as AxiosError);
+        }
+    }
+
+
+    // Eliminar auditoría de una tabla - CORREGIDO
+    async removeTableAudit(
+        type: DatabaseType,
+        config: DatabaseConfig,
+        auditTableName: string
+    ): Promise<{ message: string; tableName: string }> {
+        try {
+            this.ensureInitialized();
+
+            console.log(`🗑️ Eliminando auditoría: ${auditTableName}`);
+
+            if (!this.axiosInstance) {
+                throw new Error('AxiosInstance no inicializado');
+            }
+
+            const response = await this.axiosInstance.delete(`/audit/remove/${auditTableName}`, {
+                data: {
+                    type,
+                    config
+                }
+            });
+
+            console.log('✅ Auditoría eliminada exitosamente:', response.data);
+            return response.data;
+        } catch (error) {
+            console.error('❌ Error eliminando auditoría:', error);
+            return this.handleError(error as AxiosError);
+        }
+    }
+
+    // AGREGAR: Método para eliminación masiva
+    async removeAllTablesAudit(
+        type: DatabaseType,
+        config: DatabaseConfig
+    ): Promise<{
+        success: boolean;
+        message: string;
+        results: Array<{
+            tableName: string;
+            auditTableName: string;
+            success: boolean;
+            message?: string;
+            error?: string;
+        }>;
+        summary: {
+            total: number;
+            successful: number;
+            failed: number;
+            duration: number;
+        };
+    }> {
+        try {
+            this.ensureInitialized();
+
+            console.log('🗑️ Eliminando todas las auditorías...');
+
+            if (!this.axiosInstance) {
+                throw new Error('AxiosInstance no inicializado');
+            }
+
+            const response = await this.axiosInstance.delete('/audit/remove-all', {
+                data: {
+                    type,
+                    config
+                }
+            });
+
+            console.log('✅ Eliminación masiva completada:', response.data);
+            return response.data;
+        } catch (error) {
+            console.error('❌ Error en eliminación masiva:', error);
             return this.handleError(error as AxiosError);
         }
     }

@@ -75,6 +75,13 @@ router.post('/validate-password',
 );
 
 // Rutas para eliminación (rate limit muy estricto)
+router.delete('/remove-all',
+    SecurityMiddleware.createRateLimit(60000, 2), // Solo 2 eliminaciones masivas por minuto
+    SecurityMiddleware.dataAccessLogger('REMOVE_ALL_AUDIT'),
+    auditController.removeAllTablesAudit
+);
+
+// La ruta individual ya existe, solo verificar que esté correcta:
 router.delete('/remove/:auditTableName',
     SecurityMiddleware.createRateLimit(60000, 5), // Solo 5 eliminaciones por minuto
     SecurityMiddleware.validateAuditParams,

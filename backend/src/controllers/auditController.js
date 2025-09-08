@@ -703,100 +703,282 @@ class AuditController {
         }
     }
 
+
     async removeTableAudit(req, res) {
         const startTime = Date.now();
         let traceId;
 
         try {
+            console.log('🗑️ === INICIO ELIMINACIÓN DE AUDITORÍA (CONTROLLER) ===');
             const { auditTableName } = req.params;
             const { type, config } = req.body;
+
+            console.log('📨 Datos recibidos:', {
+                auditTableName,
+                type,
+                config: !!config
+            });
+
+            if (!auditTableName) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Nombre de tabla de auditoría requerido'
+                });
+            }
+
+            if (!type || !config) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Tipo y configuración de base de datos requeridos'
+                });
+            }
 
             traceId = await systemAuditService.logAuditConfig(
                 'REMOVE_TABLE_AUDIT_START',
                 auditTableName,
-                req.ip
+                req.ip,
+                { userAgent: req.get('User-Agent') }
             );
 
             const connection = await databaseManager.getConnection(type, config);
-            const result = await auditService.removeAuditTable(type, connection, config, auditTableName);
+
+            const result = await auditService.removeAuditTable(
+                type,
+                connection,
+                config,
+                auditTableName
+            );
 
             const duration = Date.now() - startTime;
 
-            await systemAuditService.logAuditConfig(
-                result.success ? 'REMOVE_TABLE_AUDIT_SUCCESS' : 'REMOVE_TABLE_AUDIT_FAILED',
-                auditTableName,
-                req.ip,
-                {
-                    success: result.success,
-                    error: result.error,
-                    duration,
-                    traceId
-                }
-            );
-
             if (result.success) {
+                await systemAuditService.logAuditConfig(
+                    'REMOVE_TABLE_AUDIT_SUCCESS',
+                    result.tableName,
+                    req.ip,
+                    {
+                        auditTableName,
+                        duration,
+                        traceId
+                    }
+                );
+
+                console.log('✅ Auditoría eliminada exitosamente');
+                console.log('🗑️ === FIN ELIMINACIÓN DE AUDITORÍA (CONTROLLER) ===');
+
                 res.json({
                     success: true,
                     message: result.message,
+                    tableName: result.tableName,
+                    auditTableName: result.auditTableName,
                     traceId
                 });
             } else {
+                await systemAuditService.logAuditConfig(
+                    'REMOVE_TABLE_AUDIT_FAILED',
+                    auditTableName,
+                    req.ip,
+                    {
+                        error: result.error,
+                        duration,
+                        traceId
+                    }
+                );
+
                 res.status(500).json({
                     success: false,
                     error: result.error,
+                    tableName: auditTableName,
                     traceId
                 });
             }
         } catch (error) {
+            const duration = Date.now() - startTime;
+
+            console.error('💥 Error en removeTableAudit controller:', error);
+
             await systemAuditService.logAuditConfig(
                 'REMOVE_TABLE_AUDIT_ERROR',
                 req.params.auditTableName || 'unknown',
                 req.ip,
                 {
-                    success: false,
                     error: error.message,
+                    duration,
                     traceId
                 }
             );
 
-            console.error('❌ Error eliminando auditoría:', error);
             res.status(500).json({
                 success: false,
-                error: error.message,
+                error: 'Error eliminando auditoría',
+                details: error.message,
                 traceId
             });
         }
     }
 
+    // AGREGAR: Método para eliminación masiva
+    // COMPLETAR el método removeAllTablesAudit que estaba incompleto:
+    async removeAllTablesAudit(req, res) {
+        const startTime = Date.now();
+        let traceId;
+
+        try {
+            console.log('🗑️ === INICIO ELIMINACIÓN MASIVA (CONTROLLER) ===');
+            const { type, config } = req.body;
+
+            console.log('📨 Datos recibidos:', {
+                type,
+                config: !!config
+            });
+
+            if (!type || !config) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Tipo y configuración de base de datos requeridos'
+                });
+            }
+
+            traceId = await systemAuditService.logAuditConfig(
+                'REMOVE_ALL_AUDIT_TABLES_START',
+                'all tables',
+                req.ip,
+                { userAgent: req.get('User-Agent') }
+            );
+
+            const connection = await databaseManager.getConnection(type, config);
+
+            const result = await auditService.removeAllAuditTables(
+                type,
+                connection,
+                config
+            );
+
+            const duration = Date.now() - startTime;
+
+            await systemAuditService.logAuditConfig(
+                result.success ? 'REMOVE_ALL_AUDIT_TABLES_SUCCESS' : 'REMOVE_ALL_AUDIT_TABLES_PARTIAL',
+                'all tables',
+                req.ip,
+                {
+                    ...result.summary,
+                    duration,
+                    traceId
+                }
+            );
+
+            console.log('📊 Eliminación masiva completada');
+            console.log('🗑️ === FIN ELIMINACIÓN MASIVA (CONTROLLER) ===');
+
+            res.json({
+                success: result.success,
+                message: result.message,
+                results: result.results,
+                summary: {
+                    ...result.summary,
+                    duration
+                },
+                traceId
+            });
+
+        } catch (error) {
+            const duration = Date.now() - startTime;
+
+            console.error('💥 Error en removeAllTablesAudit controller:', error);
+
+            await systemAuditService.logAuditConfig(
+                'REMOVE_ALL_AUDIT_TABLES_ERROR',
+                'all tables',
+                req.ip,
+                {
+                    error: error.message,
+                    duration,
+                    traceId
+                }
+            );
+
+            res.status(500).json({
+                success: false,
+                error: 'Error en eliminación masiva de auditoría',
+                details: error.message,
+                traceId
+            });
+        }
+    }
+
+
+    // COMPLETAR el método getAuditStatistics:
     async getAuditStatistics(req, res) {
         const startTime = Date.now();
 
         try {
+            console.log('📊 === INICIO OBTENER ESTADÍSTICAS ===');
             const { auditTableName } = req.params;
             const { type, config } = req.body;
 
-            const connection = await databaseManager.getConnection(type, config);
-            const result = await auditService.getAuditStatistics(type, connection, config, auditTableName);
+            console.log('📨 Datos recibidos:', {
+                auditTableName,
+                type,
+                config: !!config
+            });
 
-            await systemAuditService.logPerformance(
-                'GET_AUDIT_STATISTICS',
-                Date.now() - startTime,
+            if (!auditTableName || !type || !config) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Parámetros requeridos: auditTableName, type, config'
+                });
+            }
+
+            const connection = await databaseManager.getConnection(type, config);
+
+            const statistics = await auditService.getAuditStatistics(
+                type,
+                connection,
+                config,
+                auditTableName
+            );
+
+            const duration = Date.now() - startTime;
+
+            await systemAuditService.logSystemAction(
+                'GET_AUDIT_STATISTICS_SUCCESS',
+                req.ip,
                 {
-                    tableName: auditTableName,
-                    totalRecords: result.totalRecords,
+                    auditTableName,
+                    totalRecords: statistics.totalRecords,
+                    duration,
                     dbType: type
                 }
             );
 
+            console.log('📊 Estadísticas obtenidas:', statistics);
+            console.log('📊 === FIN OBTENER ESTADÍSTICAS ===');
+
             res.json({
                 success: true,
-                statistics: result
+                data: statistics
             });
+
         } catch (error) {
-            console.error('❌ Error obteniendo estadísticas:', error);
+            const duration = Date.now() - startTime;
+
+            console.error('💥 Error obteniendo estadísticas:', error);
+
+            await systemAuditService.logSystemAction(
+                'GET_AUDIT_STATISTICS_ERROR',
+                req.ip,
+                {
+                    error: error.message,
+                    duration,
+                    auditTableName: req.params.auditTableName
+                },
+                'error'
+            );
+
             res.status(500).json({
                 success: false,
-                error: error.message
+                error: 'Error obteniendo estadísticas de auditoría',
+                details: error.message
             });
         }
     }

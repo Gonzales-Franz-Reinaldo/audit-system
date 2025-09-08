@@ -6,23 +6,23 @@ console.log('🔍 Métodos crypto disponibles:', Object.getOwnPropertyNames(cryp
 
 
 class EncryptionService {
-    
+
     constructor() {
         console.log('🔍 Inicializando EncryptionService...');
         console.log('📊 Versión de Node.js:', process.version);
-        
+
         // FORZAR GCM para Node.js v22.17.1 - es 100% compatible
         this.algorithm = 'aes-256-gcm';
         this.hasGCMSupport = true;
-        
+
         console.log('✅ FORZADO: GCM habilitado para Node.js v22.17.1');
-        
+
         this.keyLength = 32; // 256 bits
         this.ivLength = 16; // 128 bits  
         this.tagLength = 16; // 128 bits (GCM)
         this.saltLength = 32; // 256 bits
         this.iterations = 100000; // PBKDF2 iterations
-        
+
         console.log('🔧 Algoritmo seleccionado:', this.algorithm);
         console.log('🔧 Soporte GCM forzado:', this.hasGCMSupport);
     }
@@ -36,9 +36,9 @@ class EncryptionService {
     checkNodeJSCompatibility() {
         const nodeVersion = process.version;
         const majorVersion = parseInt(nodeVersion.slice(1).split('.')[0]);
-        
+
         console.log(`🔍 Verificando compatibilidad de Node.js ${nodeVersion}`);
-        
+
         // IMPORTANTE: Probar realmente en lugar de solo verificar propiedades
         let hasGCM = false;
         try {
@@ -50,7 +50,7 @@ class EncryptionService {
         } catch (error) {
             hasGCM = false;
         }
-        
+
         const compatibility = {
             hasGCM: hasGCM,
             hasModernCrypto: majorVersion >= 10,
@@ -58,9 +58,9 @@ class EncryptionService {
             recommendUpgrade: false, // Node.js v22 es muy moderno
             isModernNode: majorVersion >= 18
         };
-        
+
         console.log('📊 Reporte de compatibilidad:', compatibility);
-        
+
         return compatibility;
     }
 
@@ -140,20 +140,20 @@ class EncryptionService {
             if (!salt) {
                 salt = crypto.randomBytes(this.saltLength);
             }
-            
+
             // Validar que el salt tenga el tamaño correcto
             if (salt.length !== this.saltLength) {
                 throw new Error('Salt inválido');
             }
 
             const key = crypto.pbkdf2Sync(
-                password, 
-                salt, 
-                this.iterations, 
-                this.keyLength, 
+                password,
+                salt,
+                this.iterations,
+                this.keyLength,
                 'sha256'
             );
-            
+
             return { key, salt };
         } catch (error) {
             console.error('Error generando clave:', error);
@@ -167,7 +167,7 @@ class EncryptionService {
             console.log('🔍 === INICIO ENCRYPT ===');
             console.log('📊 Algoritmo actual:', this.algorithm);
             console.log('📊 Soporte GCM:', this.hasGCMSupport);
-            
+
             // Validaciones de entrada
             if (text === null || text === undefined) {
                 return null;
@@ -184,7 +184,7 @@ class EncryptionService {
             const iv = crypto.randomBytes(this.ivLength);
 
             console.log('🔐 Usando AES-256-GCM FORZADO');
-            
+
             // USAR GCM directamente - Node.js v22.17.1 lo soporta 100%
             const cipher = crypto.createCipheriv(this.algorithm, key, iv);
 
@@ -192,12 +192,12 @@ class EncryptionService {
             encrypted += cipher.final('hex');
 
             const tag = cipher.getAuthTag();
-            
+
             // Formato: salt:iv:tag:encrypted
-            const result = salt.toString('hex') + ':' + 
-                        iv.toString('hex') + ':' + 
-                        tag.toString('hex') + ':' + 
-                        encrypted;
+            const result = salt.toString('hex') + ':' +
+                iv.toString('hex') + ':' +
+                tag.toString('hex') + ':' +
+                encrypted;
 
             console.log('✅ Encriptación GCM exitosa');
             console.log('🔍 === FIN ENCRYPT ===');
@@ -246,20 +246,20 @@ class EncryptionService {
             }
 
             const [salt, iv, tag, encrypted] = parts;
-            
+
             // Para el formato simulado, intentamos reconstruir el dato original
             // usando el hash reverso (esto es una aproximación)
-            
+
             // Como es simulado, retornamos un placeholder indicativo
             return `[DATO_SIMULADO: ${encrypted.substring(0, 16)}...]`;
-            
+
         } catch (error) {
             console.error('Error en desencriptación simulada:', error);
             return `[ERROR_SIMULADO: ${error.message}]`;
         }
     }
 
-    
+
     decrypt(encryptedText, password) {
         try {
             console.log('🔍 === INICIO DECRYPT ===');
@@ -286,109 +286,159 @@ class EncryptionService {
 
             const parts = encryptedText.split(':');
             if (parts.length !== 4) {
-                throw new Error(`Formato de texto encriptado inválido. Esperado 4 partes, encontrado ${parts.length}`);
+                throw new Error(`Formato inválido: esperado 4 partes, recibido ${parts.length}`);
             }
 
             const [saltHex, ivHex, tagHex, encryptedHex] = parts;
 
-            if (saltHex.length !== 64 || ivHex.length !== 32 || tagHex.length !== 32) {
-                throw new Error('Componentes con longitudes inválidas');
+            // VALIDACIÓN MEJORADA de longitudes
+            if (saltHex.length !== 64) {
+                console.warn(`⚠️ Salt length: ${saltHex.length}, esperado: 64`);
+            }
+            if (ivHex.length !== 32) {
+                console.warn(`⚠️ IV length: ${ivHex.length}, esperado: 32`);
+            }
+            if (tagHex.length !== 32) {
+                console.warn(`⚠️ Tag length: ${tagHex.length}, esperado: 32`);
             }
 
             const saltBuf = Buffer.from(saltHex, 'hex');
             const ivBuf = Buffer.from(ivHex, 'hex');
             const tagBuf = Buffer.from(tagHex, 'hex');
 
-            // ORDEN DE INTENTOS:
-            // 1. Esquema PostgreSQL actual (SHA256 + AES-256-CBC)
-            // 2. PBKDF2 + AES-256-CBC (por si migras en el futuro)
-            // 3. PBKDF2 + AES-256-GCM (formato propio Node)
+            // ORDEN DE INTENTOS CORREGIDO:
             let lastErrors = [];
 
-            // 1) PostgreSQL (digest)
+            // 1) PRIMERA PRIORIDAD: PostgreSQL con pgcrypto (SHA256 + AES-CBC)
             try {
-                console.log('🔍 Intentando modo PostgreSQL (SHA256 + CBC)...');
-                const keyPg = this.derivePgcryptoKey(password, saltBuf);
-                const decipherPg = crypto.createDecipheriv('aes-256-cbc', keyPg, ivBuf);
-                let decPg = decipherPg.update(encryptedHex, 'hex', 'utf8');
-                decPg += decipherPg.final('utf8');
-                console.log('✅ Desencriptación modo PostgreSQL exitosa');
+                console.log('🔍 Intentando modo PostgreSQL (SHA256 + AES-CBC)...');
+
+                // Derivar clave EXACTAMENTE como PostgreSQL
+                const keyDerived = crypto.createHash('sha256')
+                    .update(password)
+                    .update(saltBuf)
+                    .digest();
+
+                // Usar AES-256-CBC (compatible con pgcrypto 'aes')
+                const decipher = crypto.createDecipheriv('aes-256-cbc', keyDerived, ivBuf);
+
+                let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+                decrypted += decipher.final('utf8');
+
+                console.log('✅ Desencriptación PostgreSQL exitosa:', decrypted.substring(0, 20));
                 console.log('🔍 === FIN DECRYPT ===');
-                return decPg;
+                return decrypted;
+
             } catch (e) {
                 lastErrors.push(`PG_SHA256_CBC: ${e.message}`);
                 console.log('⚠️ Falló modo PostgreSQL:', e.message);
             }
 
-            // 2) PBKDF2 + CBC
+            // 2) SEGUNDA PRIORIDAD: Fallback simulado (para datos de PostgreSQL sin pgcrypto)
             try {
-                console.log('🔍 Intentando PBKDF2 + CBC...');
-                const { key: keyPbk } = this.generateKeyFromPassword(password, saltBuf);
-                const decipherCBC = crypto.createDecipheriv('aes-256-cbc', keyPbk, ivBuf);
-                let decCBC = decipherCBC.update(encryptedHex, 'hex', 'utf8');
-                decCBC += decipherCBC.final('utf8');
-                console.log('✅ Desencriptación PBKDF2 + CBC exitosa');
+                console.log('🔍 Intentando modo fallback simulado...');
+
+                // Para datos simulados, intentamos reconstruir el patrón
+                if (encryptedHex.length >= 64) {
+                    // Verificar si el patrón de hash coincide
+                    const hashBase = `[SIMULADO]${password}${saltHex.substring(0, 8)}`;
+                    const expectedPattern = crypto.createHash('md5').update(hashBase).digest('hex');
+
+                    if (encryptedHex.substring(0, 8) === expectedPattern.substring(0, 8)) {
+                        const result = `[DATO_SIMULADO: hash_${encryptedHex.substring(0, 16)}]`;
+                        console.log('✅ Datos simulados detectados:', result);
+                        console.log('🔍 === FIN DECRYPT ===');
+                        return result;
+                    }
+                }
+
+            } catch (e) {
+                lastErrors.push(`FALLBACK_SIM: ${e.message}`);
+                console.log('⚠️ Falló modo fallback simulado:', e.message);
+            }
+
+            // 3) TERCERA PRIORIDAD: Node.js PBKDF2 + CBC (compatibilidad con datos antiguos)
+            try {
+                console.log('🔍 Intentando PBKDF2 + AES-CBC...');
+
+                const { key } = this.generateKeyFromPassword(password, saltBuf);
+                const decipher = crypto.createDecipheriv('aes-256-cbc', key, ivBuf);
+
+                let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+                decrypted += decipher.final('utf8');
+
+                console.log('✅ Desencriptación PBKDF2-CBC exitosa:', decrypted.substring(0, 20));
                 console.log('🔍 === FIN DECRYPT ===');
-                return decCBC;
+                return decrypted;
+
             } catch (e) {
                 lastErrors.push(`PBKDF2_CBC: ${e.message}`);
                 console.log('⚠️ Falló PBKDF2 + CBC:', e.message);
             }
 
-            // 3) PBKDF2 + GCM (nuestro formato Node)
+            // 4) CUARTA PRIORIDAD: Node.js PBKDF2 + GCM (datos muy nuevos)
             try {
-                console.log('🔍 Intentando PBKDF2 + GCM...');
+                console.log('🔍 Intentando PBKDF2 + AES-GCM...');
+
                 const { key } = this.generateKeyFromPassword(password, saltBuf);
-                const decipherGCM = crypto.createDecipheriv('aes-256-gcm', key, ivBuf);
-                decipherGCM.setAuthTag(tagBuf);
-                let decGCM = decipherGCM.update(encryptedHex, 'hex', 'utf8');
-                decGCM += decipherGCM.final('utf8');
-                console.log('✅ Desencriptación PBKDF2 + GCM exitosa');
+                const decipher = crypto.createDecipheriv('aes-256-gcm', key, ivBuf);
+                decipher.setAuthTag(tagBuf);
+
+                let decrypted = decipher.update(encryptedHex, 'hex', 'utf8');
+                decrypted += decipher.final('utf8');
+
+                console.log('✅ Desencriptación PBKDF2-GCM exitosa:', decrypted.substring(0, 20));
                 console.log('🔍 === FIN DECRYPT ===');
-                return decGCM;
+                return decrypted;
+
             } catch (e) {
                 lastErrors.push(`PBKDF2_GCM: ${e.message}`);
                 console.log('⚠️ Falló PBKDF2 + GCM:', e.message);
             }
 
-            throw new Error('Contraseña incorrecta o datos corruptos. Intentos: ' + lastErrors.join(' | '));
-        } catch (error) {
-            console.error('❌ Error en desencriptación:', error.message);
+            // TODOS LOS MÉTODOS FALLARON
+            console.error('❌ Error en desencriptación:', lastErrors.join(' | '));
             console.error('📋 Datos problemáticos:', {
                 type: typeof encryptedText,
-                length: encryptedText?.length,
-                preview: typeof encryptedText === 'string' ? encryptedText.substring(0, 100) : 'No es string',
-                parts: typeof encryptedText === 'string' ? encryptedText.split(':').length : 0
+                length: encryptedText.length,
+                preview: encryptedText.substring(0, 100),
+                parts: parts.length,
+                saltLength: saltHex.length,
+                ivLength: ivHex.length,
+                tagLength: tagHex.length,
+                encryptedLength: encryptedHex.length
             });
-            if (error.message.includes('bad decrypt') || error.message.includes('unable to authenticate')) {
-                throw new Error('Contraseña de desencriptación incorrecta o datos corruptos');
-            }
+
+            throw new Error(`Contraseña incorrecta o datos corruptos. Intentos: ${lastErrors.join(' | ')}`);
+
+        } catch (error) {
+            console.error('❌ Error crítico en decrypt:', error.message);
+            console.log('🔍 === FIN DECRYPT (ERROR) ===');
             throw new Error(`Error en el proceso de desencriptación: ${error.message}`);
         }
     }
-    
 
 
     // AGREGAR: Método de fallback para versiones antiguas de Node.js
     decryptFallback(encryptedText, password) {
         try {
             console.log('🔄 Usando método de fallback CBC para desencriptación');
-            
+
             const parts = encryptedText.split(':');
             const [saltHex, ivHex, tagHex, encrypted] = parts;
-            
+
             // Para fallback CBC, intentar desencriptar lo que podamos
             const salt = Buffer.from(saltHex, 'hex');
             const iv = Buffer.from(ivHex, 'hex');
-            
+
             const { key } = this.generateKeyFromPassword(password, salt);
-            
+
             try {
                 // Intentar con createDecipheriv si está disponible
                 const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
                 let decrypted = decipher.update(encrypted, 'hex', 'utf8');
                 decrypted += decipher.final('utf8');
-                
+
                 console.log('✅ Desencriptación CBC exitosa');
                 return decrypted;
             } catch (cbcError) {
@@ -396,13 +446,13 @@ class EncryptionService {
                 // Si falla, mostrar que los datos están correctamente encriptados
                 return `[DATOS_ENCRIPTADOS_CORRECTOS: Longitud: ${encrypted.length} chars]`;
             }
-            
+
         } catch (error) {
             console.error('Error en método de fallback:', error);
             return `[ERROR_FALLBACK: ${error.message}]`;
         }
     }
-    
+
     // AGREGAR: Método para detectar cadenas de fecha
     isDateString(str) {
         // Detectar formatos comunes de fecha
@@ -412,37 +462,37 @@ class EncryptionService {
             /GMT|UTC/, // Zonas horarias
             /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/ // ISO format
         ];
-        
+
         return datePatterns.some(pattern => pattern.test(str));
     }
-    
+
     // AGREGAR método específico para desencriptar datos de PostgreSQL con pgcrypto
     decryptPostgreSQLPgcrypto(encryptedText, password) {
         try {
             console.log('🔓 Intentando desencriptar formato PostgreSQL pgcrypto');
-            
+
             const parts = encryptedText.split(':');
             if (parts.length !== 4) {
                 throw new Error('Formato inválido para PostgreSQL pgcrypto');
             }
 
             const [salt, iv, tag, encrypted] = parts;
-            
+
             // Para datos encriptados con pgp_sym_encrypt, necesitamos 
             // desencriptar el componente encrypted que contiene los datos de pgcrypto
             try {
                 // Decodificar el componente encriptado (que viene de pgp_sym_encrypt)
                 const pgcryptoData = Buffer.from(encrypted, 'hex');
-                
+
                 // Los datos de pgcrypto vienen en formato binario
                 // Por ahora, retornamos una representación legible
                 return `[DATOS_PGCRYPTO: ${pgcryptoData.toString('base64').substring(0, 50)}...]`;
-                
+
             } catch (decodeError) {
                 console.error('Error decodificando datos pgcrypto:', decodeError);
                 return `[ERROR_PGCRYPTO: ${encrypted.substring(0, 50)}...]`;
             }
-            
+
         } catch (error) {
             console.error('Error en desencriptación PostgreSQL:', error);
             return `[ERROR_DESENCRIPTACION: ${error.message}]`;
@@ -453,28 +503,28 @@ class EncryptionService {
     handlePostgreSQLFormat(encryptedText, password) {
         try {
             console.log('🔧 Manejando formato PostgreSQL:', encryptedText.substring(0, 50));
-            
+
             if (encryptedText.startsWith('simple:')) {
                 const hashPart = encryptedText.substring(7);
                 return `[HASH_POSTGRESQL: ${hashPart.substring(0, 16)}...]`;
             }
-            
+
             if (encryptedText.startsWith('error:')) {
                 const errorPart = encryptedText.substring(6);
                 return `[ERROR_POSTGRESQL: ${errorPart}]`;
             }
-            
+
             if (encryptedText.startsWith('\\x')) {
                 return `[HEX_POSTGRESQL: ${encryptedText.substring(0, 20)}...]`;
             }
-            
+
             // AGREGAR: Verificar si tiene formato compatible de PostgreSQL
             const parts = encryptedText.split(':');
             if (parts.length === 4) {
                 // Parece ser formato compatible, intentar desencriptar con pgcrypto
                 return this.decryptPostgreSQLPgcrypto(encryptedText, password);
             }
-            
+
             return `[FORMATO_DESCONOCIDO: ${encryptedText.substring(0, 50)}...]`;
         } catch (error) {
             return `[ERROR_PROCESANDO: ${error.message}]`;
@@ -487,7 +537,7 @@ class EncryptionService {
             // Este método maneja datos encriptados con pgp_sym_encrypt
             // Nota: Esto es una implementación simplificada
             const decodedData = Buffer.from(base64Data, 'base64');
-            
+
             // Para datos ya existentes con formato PostgreSQL,
             // necesitaríamos implementar compatibilidad con pgcrypto
             // Por ahora, retornamos un mensaje indicativo
@@ -501,14 +551,14 @@ class EncryptionService {
     encryptColumnName(columnName, password) {
         try {
             const prefix = 'enc_';
-            
+
             // Crear un hash consistente para el nombre de columna
             const hash = crypto
                 .createHash('sha256')
                 .update(columnName + password)
                 .digest('hex')
                 .substring(0, 12); // 12 caracteres para mantener legibilidad
-            
+
             return prefix + hash;
         } catch (error) {
             console.error('Error encriptando nombre de columna:', error);
@@ -524,14 +574,14 @@ class EncryptionService {
                 return { valid: true, attempts: attempt };
             } catch (error) {
                 if (attempt === maxRetries) {
-                    return { 
-                        valid: false, 
+                    return {
+                        valid: false,
                         attempts: attempt,
-                        error: error.message 
+                        error: error.message
                     };
                 }
                 // Pequeña pausa entre intentos para evitar ataques de fuerza bruta
-                setTimeout(() => {}, 100 * attempt);
+                setTimeout(() => { }, 100 * attempt);
             }
         }
     }
@@ -542,7 +592,7 @@ class EncryptionService {
         const uppercase = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
         const numbers = '0123456789';
         const special = includeSpecial ? '!@#$%^&*()_+-=[]{}|;:,.<>?' : '';
-        
+
         const allChars = lowercase + uppercase + numbers + special;
         let password = '';
 
@@ -550,7 +600,7 @@ class EncryptionService {
         password += lowercase[Math.floor(Math.random() * lowercase.length)];
         password += uppercase[Math.floor(Math.random() * uppercase.length)];
         password += numbers[Math.floor(Math.random() * numbers.length)];
-        
+
         if (includeSpecial) {
             password += special[Math.floor(Math.random() * special.length)];
         }
@@ -595,7 +645,7 @@ class EncryptionService {
 
             return {
                 ...results,
-                integrityPercentage: results.total > 0 ? 
+                integrityPercentage: results.total > 0 ?
                     Math.round((results.valid / results.total) * 100) : 0
             };
         } catch (error) {
@@ -608,7 +658,7 @@ class EncryptionService {
     encryptRow(row, password, excludeColumns = []) {
         try {
             this.validateEncryptionKey(password);
-            
+
             const encryptedRow = {};
 
             for (const [column, value] of Object.entries(row)) {
@@ -616,7 +666,7 @@ class EncryptionService {
                     encryptedRow[column] = value;
                 } else {
                     const encryptedColumn = this.encryptColumnName(column, password);
-                    const encryptedValue = value !== null && value !== undefined ? 
+                    const encryptedValue = value !== null && value !== undefined ?
                         this.encrypt(String(value), password) : null;
                     encryptedRow[encryptedColumn] = encryptedValue;
                 }
@@ -632,7 +682,7 @@ class EncryptionService {
     decryptRow(encryptedRow, password, originalColumns) {
         try {
             this.validateEncryptionKey(password);
-            
+
             const decryptedRow = {};
 
             for (const originalColumn of originalColumns) {

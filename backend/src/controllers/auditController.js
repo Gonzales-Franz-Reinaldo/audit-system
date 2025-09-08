@@ -160,29 +160,122 @@ class AuditController {
         let traceId;
 
         try {
-            const { type, config, encryptionKey, tables } = req.body;
+            console.log('🔧 === INICIO CONFIGURACIÓN MASIVA CORREGIDA ===');
+            const { type, config, encryptionKey, tables, selectedTables } = req.body;
+
+            console.log('📨 Datos recibidos:', {
+                type,
+                config: !!config,
+                encryptionKey: !!encryptionKey,
+                tables: tables?.length || 0,
+                selectedTables: selectedTables?.length || 0
+            });
+
+            // Validar parámetros
+            if (!type || !config || !encryptionKey) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Tipo, configuración y clave de encriptación requeridos'
+                });
+            }
+
+            // Determinar qué tablas procesar
+            let tablesToProcess = [];
+
+            if (selectedTables && selectedTables.length > 0) {
+                tablesToProcess = selectedTables;
+                console.log(`📋 Procesando ${selectedTables.length} tablas seleccionadas`);
+            } else if (tables && tables.length > 0) {
+                tablesToProcess = tables;
+                console.log(`📋 Procesando todas las ${tables.length} tablas`);
+            } else {
+                const connection = await databaseManager.getConnection(type, config);
+                const allTables = await this.getTablesWithoutAudit(type, connection, config);
+                tablesToProcess = allTables.map(t => t.name);
+                console.log(`📋 Encontradas ${tablesToProcess.length} tablas sin auditoría`);
+            }
+
+            if (tablesToProcess.length === 0) {
+                return res.json({
+                    success: true,
+                    message: 'No hay tablas para procesar',
+                    results: [],
+                    summary: { total: 0, successful: 0, failed: 0 }
+                });
+            }
 
             traceId = await systemAuditService.logAuditConfig(
                 'SETUP_ALL_TABLES_AUDIT_START',
-                `${tables?.length || 0} tables`,
+                `${tablesToProcess.length} tables`,
                 req.ip,
                 {
                     encryptionKeyUsed: !!encryptionKey,
-                    tableCount: tables?.length || 0
+                    tableCount: tablesToProcess.length,
+                    selectedMode: !!selectedTables
                 }
             );
 
-            console.log(`🔧 Configurando auditoría para todas las tablas (${tables?.length || 0})`);
-
             const connection = await databaseManager.getConnection(type, config);
 
-            const results = await triggerService.setupAllTablesAudit(
-                type,
-                connection,
-                config,
-                tables,
-                encryptionKey
-            );
+            // ✅ SOLUCIÓN: PROCESAMIENTO COMPLETAMENTE SECUENCIAL
+            const results = [];
+            let processedCount = 0;
+
+            console.log(`🔄 Procesando ${tablesToProcess.length} tablas SECUENCIALMENTE para evitar conflictos...`);
+
+            for (const tableName of tablesToProcess) {
+                processedCount++;
+                console.log(`⚙️ [${processedCount}/${tablesToProcess.length}] Configurando: ${tableName}`);
+
+                try {
+                    // ✅ AGREGAR: Pausa entre tablas para evitar conflictos de concurrencia
+                    if (processedCount > 1) {
+                        console.log('⏳ Pausa anti-conflicto...');
+                        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos
+                    }
+
+                    console.log(`🔧 Iniciando configuración para: ${tableName}`);
+
+                    const result = await triggerService.setupTableAudit(
+                        type,
+                        connection,
+                        config,
+                        tableName,
+                        encryptionKey
+                    );
+
+                    if (result && result.success) {
+                        console.log(`✅ ${tableName}: Configurado exitosamente`);
+                        results.push({
+                            tableName,
+                            success: true,
+                            auditTableName: result.auditTableName,
+                            message: 'Auditoría configurada exitosamente'
+                        });
+                    } else {
+                        console.error(`❌ ${tableName}: ${result?.error || 'Error desconocido'}`);
+                        results.push({
+                            tableName,
+                            success: false,
+                            error: result?.error || 'Error desconocido',
+                            message: 'Error en la configuración'
+                        });
+                    }
+                } catch (error) {
+                    console.error(`💥 Excepción en ${tableName}:`, error.message);
+                    results.push({
+                        tableName,
+                        success: false,
+                        error: error.message,
+                        message: 'Error de excepción'
+                    });
+                }
+
+                // ✅ MOSTRAR PROGRESO
+                const successCount = results.filter(r => r.success).length;
+                const failureCount = results.filter(r => !r.success).length;
+                console.log(`📊 Progreso: ${processedCount}/${tablesToProcess.length} | ✅ ${successCount} | ❌ ${failureCount}`);
+            }
 
             const duration = Date.now() - startTime;
             const successCount = results.filter(r => r.success).length;
@@ -190,41 +283,42 @@ class AuditController {
 
             await systemAuditService.logAuditConfig(
                 'SETUP_ALL_TABLES_AUDIT_COMPLETED',
-                `${tables?.length || 0} tables`,
+                `${tablesToProcess.length} tables`,
                 req.ip,
                 {
                     success: successCount > 0,
                     successCount,
                     failureCount,
                     duration,
-                    traceId
+                    traceId,
+                    completionRate: Math.round((successCount / tablesToProcess.length) * 100)
                 }
             );
 
-            await systemAuditService.logPerformance(
-                'SETUP_ALL_TABLES_AUDIT',
-                duration,
-                {
-                    tableCount: tables?.length || 0,
-                    successCount,
-                    failureCount,
-                    dbType: type,
-                    traceId
-                }
-            );
+            console.log('📊 === RESUMEN CONFIGURACIÓN MASIVA CORREGIDA ===');
+            console.log(`✅ Exitosas: ${successCount}`);
+            console.log(`❌ Fallidas: ${failureCount}`);
+            console.log(`⏱️ Duración total: ${duration}ms`);
+            console.log('🔧 === FIN CONFIGURACIÓN MASIVA CORREGIDA ===');
 
             res.json({
-                success: true,
+                success: successCount > 0,
+                message: `Configuración completada: ${successCount} exitosas, ${failureCount} fallidas`,
                 results,
                 summary: {
                     total: results.length,
                     successful: successCount,
-                    failed: failureCount
+                    failed: failureCount,
+                    completionRate: Math.round((successCount / results.length) * 100),
+                    duration
                 },
                 traceId
             });
+
         } catch (error) {
             const duration = Date.now() - startTime;
+
+            console.error('💥 Error en configuración masiva:', error);
 
             await systemAuditService.logAuditConfig(
                 'SETUP_ALL_TABLES_AUDIT_ERROR',
@@ -238,14 +332,54 @@ class AuditController {
                 }
             );
 
-            console.error('❌ Error configurando auditoría masiva:', error);
             res.status(500).json({
                 success: false,
-                error: error.message,
+                error: 'Error en configuración masiva de auditoría',
+                details: error.message,
                 traceId
             });
         }
     }
+
+
+    // AGREGAR: Método helper para obtener tablas sin auditoría
+    async getTablesWithoutAudit(type, connection, config) {
+        try {
+            let query;
+            let params = [];
+
+            if (type === 'postgresql') {
+                query = `
+                SELECT 
+                    t.tablename as name,
+                    CASE 
+                        WHEN audit_t.tablename IS NOT NULL THEN true 
+                        ELSE false 
+                    END as has_audit
+                FROM pg_tables t
+                LEFT JOIN pg_tables audit_t 
+                    ON audit_t.schemaname = t.schemaname 
+                    AND audit_t.tablename = ('aud_' || t.tablename)
+                WHERE t.schemaname = $1 
+                AND t.tablename NOT LIKE 'aud_%'
+                ORDER BY t.tablename
+            `;
+                params = [config.schema || 'public'];
+            }
+
+            const client = await connection.connect();
+            try {
+                const result = await client.query(query, params);
+                return result.rows.filter(row => !row.has_audit);
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.error('Error obteniendo tablas sin auditoría:', error);
+            return [];
+        }
+    }
+
 
     // Validar contraseña de encriptación - MÉTODO FALTANTE
     async validateEncryptionPassword(req, res) {

@@ -266,13 +266,13 @@ class ApiService {
     ): Promise<AuditData> {
         try {
             this.ensureInitialized();
-            
+
             console.log(`🔍 Obteniendo datos encriptados de: ${auditTableName}`);
-            
+
             if (!this.axiosInstance) {
                 throw new Error('Servicio API no está disponible');
             }
-            
+
             const response = await this.axiosInstance.post(`/audit/view-encrypted/${auditTableName}`, {
                 type,
                 config,
@@ -301,13 +301,13 @@ class ApiService {
 
         } catch (error) {
             console.error(`❌ Error obteniendo datos encriptados:`, error);
-            
+
             const axiosError = error as AxiosError;
             if (axiosError.response?.data) {
                 const errorData = axiosError.response.data as any;
                 throw new Error(errorData.error || errorData.message || 'Error del servidor');
             }
-            
+
             throw new Error(axiosError.message || 'Error de conexión al obtener datos encriptados');
         }
     }
@@ -324,13 +324,13 @@ class ApiService {
     ): Promise<AuditData> {
         try {
             this.ensureInitialized();
-            
+
             console.log(`🔓 Desencriptando datos de: ${auditTableName}`);
-            
+
             if (!this.axiosInstance) {
                 throw new Error('Servicio API no está disponible');
             }
-            
+
             const response = await this.axiosInstance.post(`/audit/view-decrypted/${auditTableName}`, {
                 type,
                 config,
@@ -360,13 +360,13 @@ class ApiService {
 
         } catch (error) {
             console.error(`❌ Error desencriptando datos:`, error);
-            
+
             const axiosError = error as AxiosError;
             if (axiosError.response?.data) {
                 const errorData = axiosError.response.data as any;
                 throw new Error(errorData.error || errorData.message || 'Error del servidor');
             }
-            
+
             throw new Error(axiosError.message || 'Error de conexión al desencriptar datos');
         }
     }
@@ -399,7 +399,7 @@ class ApiService {
         }
     }
 
-    // Configurar auditoría para todas las tablas
+    // AGREGAR: Método para configuración masiva de auditoría
     async setupAllTablesAudit(
         type: DatabaseType,
         config: DatabaseConfig,
@@ -409,19 +409,45 @@ class ApiService {
         try {
             this.ensureInitialized();
 
+            console.log(`🔧 Configurando auditoría masiva para ${tables.length} tablas`);
+
+            if (encryptionKey.length < 12) {
+                throw new Error('La clave de encriptación debe tener al menos 12 caracteres');
+            }
+
+            if (!tables || tables.length === 0) {
+                throw new Error('Debe seleccionar al menos una tabla');
+            }
+
             if (!this.axiosInstance) {
-                throw new Error('Servicio API no está disponible');
+                throw new Error('Servicio API no disponible');
             }
 
             const response = await this.axiosInstance.post('/audit/setup-all', {
                 type,
                 config,
-                tables,
-                encryptionKey,
+                selectedTables: tables, // Enviar como selectedTables
+                encryptionKey
             });
+
+            console.log(`✅ Respuesta de configuración masiva:`, response.data);
+
+            if (!response.data) {
+                throw new Error('Respuesta vacía del servidor');
+            }
+
             return response.data;
+
         } catch (error) {
-            return this.handleError(error as AxiosError);
+            console.error(`❌ Error en setupAllTablesAudit:`, error);
+
+            const axiosError = error as AxiosError;
+            if (axiosError.response?.data) {
+                const errorData = axiosError.response.data as any;
+                throw new Error(errorData.error || errorData.message || 'Error del servidor');
+            }
+
+            throw new Error(axiosError.message || 'Error de conexión en configuración masiva');
         }
     }
 

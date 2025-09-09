@@ -1,9 +1,5 @@
 const crypto = require('crypto');
 
-// AGREGAR al inicio del archivo para debugging
-console.log('🔍 Versión de Node.js:', process.version);
-console.log('🔍 Métodos crypto disponibles:', Object.getOwnPropertyNames(crypto));
-
 
 class EncryptionService {
 
@@ -14,8 +10,6 @@ class EncryptionService {
         // FORZAR GCM para Node.js v22.17.1 - es 100% compatible
         this.algorithm = 'aes-256-gcm';
         this.hasGCMSupport = true;
-
-        console.log('✅ FORZADO: GCM habilitado para Node.js v22.17.1');
 
         this.keyLength = 32; // 256 bits
         this.ivLength = 16; // 128 bits  

@@ -67,6 +67,27 @@ export interface AuditTable {
     recordCount: number;
     lastUpdated?: string;
     error?: string;
+    // NUEVAS PROPIEDADES para tablas encriptadas
+    isEncrypted?: boolean;
+    isEncryptedTable?: boolean;
+    displayName?: string;
+    isDecrypted?: boolean;
+}
+
+// ✅ AGREGAR: Tipo específico para tablas encriptadas
+export interface EncryptedAuditTable extends AuditTable {
+    isEncryptedTable: true;
+    encryptedTableName: string;
+    canDecrypt: boolean;
+}
+
+// ✅ AGREGAR: Tipo para respuesta de tablas encriptadas
+export interface EncryptedTablesResponse {
+    success: boolean;
+    data: {
+        auditTables: EncryptedAuditTable[];
+        total: number;
+    };
 }
 
 // Datos de auditoría

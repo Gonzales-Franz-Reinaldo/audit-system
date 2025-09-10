@@ -89,4 +89,17 @@ router.delete('/remove/:auditTableName',
     auditController.removeTableAudit
 );
 
+// Rutas para tablas encriptadas
+router.post('/encrypted-tables', 
+    SecurityMiddleware.createRateLimit(60000, 30),
+    auditController.getEncryptedAuditTables
+);
+
+router.post('/decrypted-tables',
+    SecurityMiddleware.encryptionRateLimit,
+    SecurityMiddleware.validateEncryptionKey,
+    SecurityMiddleware.dataAccessLogger('DECRYPT_TABLES'),
+    auditController.getDecryptedAuditTables
+);
+
 module.exports = router;

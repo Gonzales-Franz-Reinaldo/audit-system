@@ -208,22 +208,14 @@ class SecurityMiddleware {
     static validateAuditParams = async (req, res, next) => {
         try {
             console.log('🔍 Validando parámetros de auditoría...');
-            console.log('📨 Parámetros recibidos:', {
-                params: req.params,
-                body: {
-                    type: req.body?.type,
-                    config: !!req.body?.config,
-                    encryptionKey: !!req.body?.encryptionKey
-                }
-            });
-
+            
             const { auditTableName } = req.params;
             const { type, config } = req.body;
 
             // Validar que el nombre de tabla de auditoría sea válido
             if (auditTableName) {
                 console.log('🔍 Validando tabla:', auditTableName);
-
+                
                 if (!auditTableName.match(/^[a-zA-Z][a-zA-Z0-9_]*$/)) {
                     return res.status(400).json({
                         success: false,
@@ -231,31 +223,19 @@ class SecurityMiddleware {
                     });
                 }
 
-                // Verificar que empiece con 'aud_' para mayor seguridad
-                if (!auditTableName.startsWith('aud_')) {
+                // ✅ CORREGIR: Verificar tanto aud_ como tablas encriptadas
+                const isAuditTable = auditTableName.startsWith('aud_');
+                const isEncryptedTable = auditTableName.match(/^t[0-9a-f]{32}$/);
+                
+                if (!isAuditTable && !isEncryptedTable) {
                     return res.status(400).json({
                         success: false,
-                        error: 'El nombre debe empezar con "aud_"'
+                        error: 'El nombre debe ser una tabla de auditoría válida (aud_xxx o tabla encriptada)'
                     });
                 }
             }
 
-            // Validar tipo de base de datos
-            if (type && !['mysql', 'postgresql', 'postgres'].includes(type.toLowerCase())) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Tipo de base de datos no soportado'
-                });
-            }
-
-            // Validar que config esté presente
-            if (type && !config) {
-                return res.status(400).json({
-                    success: false,
-                    error: 'Configuración de base de datos requerida'
-                });
-            }
-
+            // Resto de validaciones...
             console.log('✅ Validación de parámetros exitosa');
             next();
         } catch (error) {

@@ -209,6 +209,87 @@ class ApiService {
         }
     }
 
+
+
+    // Obtener tablas de auditoría encriptadas sin clave
+    async getEncryptedAuditTables(
+        type: DatabaseType,
+        config: DatabaseConfig
+    ): Promise<{
+        success: boolean;
+        data: {
+            auditTables: Array<{
+                tableName: string;
+                originalTable: string;
+                hasEncryption: boolean;
+                recordCount: number;
+                isEncryptedTable: boolean;
+            }>;
+            total: number;
+        };
+    }> {
+        try {
+            this.ensureInitialized();
+
+            // AGREGAR verificación explícita de axiosInstance
+            if (!this.axiosInstance) {
+                throw new Error('AxiosInstance no está inicializado');
+            }
+
+            const response = await this.axiosInstance.post('/audit/encrypted-tables', {
+                type,
+                config
+            });
+
+            return response.data;
+        } catch (error) {
+            console.error('❌ Error obteniendo tablas encriptadas:', error);
+            return this.handleError(error as AxiosError);
+        }
+    }
+
+    // Obtener tablas de auditoría desencriptadas con clave
+    async getDecryptedAuditTables(
+        type: DatabaseType,
+        config: DatabaseConfig,
+        encryptionKey: string
+    ): Promise<{
+        success: boolean;
+        data: {
+            auditTables: Array<{
+                tableName: string;
+                originalTable: string;
+                displayName: string;
+                hasEncryption: boolean;
+                recordCount: number;
+                isEncryptedTable: boolean;
+                isDecrypted: boolean;
+            }>;
+            total: number;
+        };
+    }> {
+        try {
+            this.ensureInitialized();
+
+            // AGREGAR verificación explícita
+            if (!this.axiosInstance) {
+                throw new Error('AxiosInstance no está inicializado');
+            }
+
+            const response = await this.axiosInstance.post('/audit/decrypted-tables', {
+                type,
+                config,
+                encryptionKey
+            });
+
+            return response.data;
+        } catch (error) {
+            console.error('❌ Error obteniendo tablas desencriptadas:', error);
+            return this.handleError(error as AxiosError);
+        }
+    }
+
+
     // Configurar auditoría para una tabla
     async setupTableAudit(
         type: DatabaseType,
@@ -474,30 +555,6 @@ class ApiService {
         }
     }
 
-    // Eliminar auditoría de una tabla
-    // async removeTableAudit(
-    //     type: DatabaseType,
-    //     config: DatabaseConfig,
-    //     auditTableName: string
-    // ): Promise<{ message: string }> {
-    //     try {
-    //         this.ensureInitialized();
-
-    //         if (!this.axiosInstance) {
-    //             throw new Error('Servicio API no está disponible');
-    //         }
-
-    //         const response = await this.axiosInstance.delete(`/audit/remove/${auditTableName}`, {
-    //             data: {
-    //                 type,
-    //                 config
-    //             }
-    //         });
-    //         return response.data;
-    //     } catch (error) {
-    //         return this.handleError(error as AxiosError);
-    //     }
-    // }
 
     // === MÉTODOS DE UTILIDAD ===
 
@@ -518,6 +575,7 @@ class ApiService {
     }
 
 
+    // Eliminar auditoría de una tabla - CORREGIDO
     // Eliminar auditoría de una tabla - CORREGIDO
     async removeTableAudit(
         type: DatabaseType,
@@ -549,6 +607,7 @@ class ApiService {
     }
 
     // AGREGAR: Método para eliminación masiva
+    // Método para eliminación masiva
     async removeAllTablesAudit(
         type: DatabaseType,
         config: DatabaseConfig

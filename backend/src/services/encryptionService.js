@@ -706,6 +706,229 @@ class EncryptionService {
         const newHash = this.generateHash(data);
         return crypto.timingSafeEqual(Buffer.from(newHash), Buffer.from(hash));
     }
+
+    // Generar nombre de tabla de auditoría encriptado
+    generateEncryptedTableName(originalTableName, encryptionKey) {
+        try {
+            // Crear un identificador único y determinístico
+            const baseString = `aud_${originalTableName}`;
+
+            // Usar PBKDF2 para generar un hash determinístico
+            const salt = crypto.createHash('sha256')
+                .update(`table_salt_${encryptionKey}_${baseString}`)
+                .digest();
+
+            const derivedName = crypto.pbkdf2Sync(
+                baseString,
+                salt,
+                10000,  // 10k iterations
+                16,     // 16 bytes = 32 chars hex
+                'sha256'
+            ).toString('hex');
+
+            // Asegurar que empiece con letra (requisito SQL)
+            const tableName = 't' + derivedName;
+
+            console.log(`🔐 Tabla encriptada generada: ${originalTableName} -> ${tableName}`);
+            return tableName;
+        } catch (error) {
+            console.error('Error generando nombre de tabla encriptado:', error);
+            throw new Error('Error en generación de nombre de tabla');
+        }
+    }
+
+    // Mapeo inverso para desencriptar nombres de tabla
+    decryptTableName(encryptedTableName, encryptionKey, possibleOriginalTables = []) {
+        try {
+            // Intentar con cada tabla posible hasta encontrar coincidencia
+            for (const originalTable of possibleOriginalTables) {
+                const generatedName = this.generateEncryptedTableName(originalTable, encryptionKey);
+                if (generatedName === encryptedTableName) {
+                    return `aud_${originalTable}`;
+                }
+            }
+
+            // Si no se encuentra, retornar indicador
+            return `[TABLA_ENCRIPTADA: ${encryptedTableName}]`;
+        } catch (error) {
+            console.error('Error desencriptando nombre de tabla:', error);
+            return `[ERROR_TABLA: ${encryptedTableName}]`;
+        }
+    }
+
 }
 
+
+
+// Al final del archivo, ANTES de module.exports = new EncryptionService();
+
+// ✅ DEFINIR la clase EncryptedTableMappingService ANTES de usarla
+class EncryptedTableMappingService {
+    constructor() {
+        this.mappingCache = new Map(); // Cache en memoria
+    }
+
+    // ✅ CORREGIR: Guardar mapeo en metadatos (tabla especial)
+    async saveTableMapping(dbType, connection, config, originalTableName, encryptedTableName, encryptionKey) {
+        try {
+            const metadataTableName = this.getMetadataTableName();
+            
+            // Crear tabla de metadatos si no existe
+            await this.ensureMetadataTable(dbType, connection, config);
+            
+            // Encriptar los metadatos
+            const encryptionServiceInstance = require('./encryptionService');
+            let encryptedMapping;
+            try {
+                encryptedMapping = encryptionServiceInstance.encrypt(
+                    JSON.stringify({
+                        originalTable: originalTableName,
+                        auditTable: `aud_${originalTableName}`,
+                        encryptedTable: encryptedTableName,
+                        timestamp: new Date().toISOString()
+                    }),
+                    encryptionKey
+                );
+            } catch (encryptError) {
+                console.warn('⚠️ Error encriptando metadatos, guardando sin encriptar:', encryptError.message);
+                encryptedMapping = null;
+            }
+
+            // ✅ CORREGIR: Usar las columnas correctas que existen en la tabla
+            if (dbType === 'postgresql') {
+                const client = await connection.connect();
+                try {
+                    // ✅ USAR COLUMNAS CORRECTAS: encrypted_name_data NO mapping_data
+                    const query = `
+                        INSERT INTO sys_audit_metadata_enc (
+                            encrypted_table_name, 
+                            original_table_name, 
+                            encrypted_name_data,
+                            created_at,
+                            updated_at
+                        ) VALUES ($1, $2, $3, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        ON CONFLICT (encrypted_table_name) 
+                        DO UPDATE SET 
+                            original_table_name = EXCLUDED.original_table_name,
+                            encrypted_name_data = EXCLUDED.encrypted_name_data,
+                            updated_at = CURRENT_TIMESTAMP
+                    `;
+
+                    await client.query(query, [
+                        encryptedTableName,
+                        originalTableName,
+                        encryptedMapping  // ← Esta es la columna correcta
+                    ]);
+
+                } finally {
+                    client.release();
+                }
+            }
+
+            // Cache en memoria
+            this.mappingCache.set(encryptedTableName, {
+                originalTable: originalTableName,
+                encryptionKey: encryptionKey
+            });
+
+            console.log(`📋 Mapeo guardado: ${originalTableName} <-> ${encryptedTableName}`);
+        } catch (error) {
+            console.error('Error guardando mapeo de tabla:', error);
+            throw error;
+        }
+    }
+
+    // ✅ CORREGIR: Recuperar mapeo original
+    async getTableMapping(dbType, connection, config, encryptedTableName, encryptionKey) {
+        try {
+            // Verificar cache primero
+            if (this.mappingCache.has(encryptedTableName)) {
+                const cached = this.mappingCache.get(encryptedTableName);
+                if (cached.encryptionKey === encryptionKey) {
+                    return cached.originalTable;
+                }
+            }
+
+            const metadataTableName = this.getMetadataTableName();
+            
+            if (dbType === 'postgresql') {
+                const client = await connection.connect();
+                try {
+                    // ✅ USAR COLUMNAS CORRECTAS
+                    const query = `
+                        SELECT original_table_name, encrypted_name_data 
+                        FROM sys_audit_metadata_enc 
+                        WHERE encrypted_table_name = $1
+                    `;
+                    
+                    const result = await client.query(query, [encryptedTableName]);
+                    
+                    if (result.rows.length > 0) {
+                        const row = result.rows[0];
+                        
+                        // Si hay datos encriptados, intentar desencriptarlos
+                        if (row.encrypted_name_data) {
+                            try {
+                                const encryptionServiceInstance = require('./encryptionService');
+                                const decryptedData = encryptionServiceInstance.decrypt(row.encrypted_name_data, encryptionKey);
+                                const mappingData = JSON.parse(decryptedData);
+                                return mappingData.originalTable;
+                            } catch (decryptError) {
+                                console.warn('⚠️ Error desencriptando metadatos, usando nombre directo');
+                            }
+                        }
+                        
+                        // Fallback: usar el nombre directo
+                        return row.original_table_name;
+                    }
+                } finally {
+                    client.release();
+                }
+            }
+            
+            throw new Error('No se encontró mapeo para la tabla');
+        } catch (error) {
+            console.error('Error recuperando mapeo de tabla:', error);
+            throw new Error('No se pudo recuperar el mapeo de tabla o clave incorrecta');
+        }
+    }
+
+    getMetadataTableName() {
+        return 'sys_audit_metadata_enc';
+    }
+
+    // ✅ CORREGIR: Crear tabla con columnas correctas
+    async ensureMetadataTable(dbType, connection, config) {
+        if (dbType === 'postgresql') {
+            const client = await connection.connect();
+            try {
+                // ✅ VERIFICAR: Usar exact las mismas columnas que están definidas en triggerService.js
+                const createTableQuery = `
+                    CREATE TABLE IF NOT EXISTS sys_audit_metadata_enc (
+                        id SERIAL PRIMARY KEY,
+                        encrypted_table_name VARCHAR(255) UNIQUE NOT NULL,
+                        original_table_name VARCHAR(255) NOT NULL,
+                        encrypted_name_data TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                    
+                    CREATE INDEX IF NOT EXISTS idx_sys_audit_metadata_enc_encrypted_table 
+                    ON sys_audit_metadata_enc(encrypted_table_name);
+                `;
+                
+                await client.query(createTableQuery);
+                console.log('✅ Tabla de metadatos verificada en EncryptedTableMappingService');
+            } finally {
+                client.release();
+            }
+        }
+    }
+}
+
+// ✅ CREAR INSTANCIA GLOBAL
+const encryptedTableMappingService = new EncryptedTableMappingService();
+
+// ✅ EXPORTAR AMBOS SERVICIOS
 module.exports = new EncryptionService();
+module.exports.encryptedTableMappingService = encryptedTableMappingService;

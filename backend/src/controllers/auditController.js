@@ -4,6 +4,8 @@ const triggerService = require('../services/triggerService');
 const systemAuditService = require('../services/systemAuditService');
 const QueryBuilders = require('../utils/queryBuilders');
 
+const { encryptedTableMappingService } = require('../services/encryptionService');
+
 class AuditController {
     // Configurar auditoría para una tabla con logging completo
     async setupTableAudit(req, res) {
@@ -151,6 +153,71 @@ class AuditController {
             });
         } finally {
             console.log('🏁 === FIN CONFIGURACIÓN AUDITORÍA ===');
+        }
+    }
+
+
+
+    // Obtener tablas de auditoría encriptadas (sin clave)
+    async getEncryptedAuditTables(req, res) {
+        try {
+            const { type, config } = req.body;
+            const connection = await databaseManager.getConnection(type, config);
+
+            const auditTables = await auditService.getEncryptedAuditTables(type, connection, config);
+
+            res.json({
+                success: true,
+                data: {
+                    auditTables: auditTables,
+                    total: auditTables.length
+                }
+            });
+        } catch (error) {
+            console.error('💥 Error obteniendo tablas encriptadas:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error obteniendo tablas de auditoría encriptadas',
+                details: error.message
+            });
+        }
+    }
+
+    // Obtener tablas de auditoría desencriptadas (con clave)
+    async getDecryptedAuditTables(req, res) {
+        try {
+            const { type, config, encryptionKey } = req.body;
+
+            if (!encryptionKey) {
+                return res.status(400).json({
+                    success: false,
+                    error: 'Clave de encriptación requerida'
+                });
+            }
+
+            const connection = await databaseManager.getConnection(type, config);
+
+            const auditTables = await auditService.getDecryptedAuditTables(
+                type,
+                connection,
+                config,
+                encryptionKey
+            );
+
+            res.json({
+                success: true,
+                data: {
+                    auditTables: auditTables,
+                    total: auditTables.length
+                }
+            });
+        } catch (error) {
+            console.error('💥 Error desencriptando tablas:', error);
+            res.status(500).json({
+                success: false,
+                error: 'Error desencriptando tablas de auditoría',
+                details: error.message
+            });
         }
     }
 
@@ -552,6 +619,93 @@ class AuditController {
     }
 
     // Desencriptar y ver datos de auditoría
+    // async viewDecryptedAuditData(req, res) {
+    //     const startTime = Date.now();
+    //     let traceId;
+
+    //     try {
+    //         console.log('🔓 === INICIO VER DATOS DESENCRIPTADOS ===');
+    //         const { auditTableName } = req.params;
+    //         const { type, config, encryptionKey, limit = 100, offset = 0 } = req.body;
+
+    //         console.log('📨 Datos recibidos:', {
+    //             auditTableName,
+    //             type,
+    //             config: !!config,
+    //             encryptionKey: !!encryptionKey,
+    //             limit,
+    //             offset
+    //         });
+
+    //         traceId = await systemAuditService.logDataAccess(
+    //             'VIEW_DECRYPTED_AUDIT_DATA',
+    //             auditTableName,
+    //             req.ip,
+    //             true,
+    //             { limit, offset, encryptionUsed: true }
+    //         );
+
+    //         const connection = await databaseManager.getConnection(type, config);
+
+    //         const auditData = await auditService.getDecryptedAuditData(
+    //             type,
+    //             connection,
+    //             config,
+    //             auditTableName,
+    //             encryptionKey,
+    //             limit,
+    //             offset
+    //         );
+
+    //         const duration = Date.now() - startTime;
+
+    //         await systemAuditService.logDataAccess(
+    //             'VIEW_DECRYPTED_AUDIT_DATA_SUCCESS',
+    //             auditTableName,
+    //             req.ip,
+    //             true,
+    //             {
+    //                 recordCount: auditData.data.length,
+    //                 duration,
+    //                 traceId
+    //             }
+    //         );
+
+    //         console.log('📋 Datos desencriptados obtenidos:', auditData.data.length);
+    //         console.log('🔓 === FIN VER DATOS DESENCRIPTADOS ===');
+
+    //         res.json({
+    //             success: true,
+    //             ...auditData,
+    //             traceId
+    //         });
+    //     } catch (error) {
+    //         const duration = Date.now() - startTime;
+    //         console.error('💥 Error obteniendo datos desencriptados:', error);
+
+    //         await systemAuditService.logDataAccess(
+    //             'VIEW_DECRYPTED_AUDIT_DATA_ERROR',
+    //             req.params.auditTableName || 'unknown',
+    //             req.ip,
+    //             true,
+    //             {
+    //                 success: false,
+    //                 error: error.message,
+    //                 duration,
+    //                 traceId
+    //             }
+    //         );
+
+    //         res.status(500).json({
+    //             success: false,
+    //             error: 'Error obteniendo datos desencriptados',
+    //             details: error.message,
+    //             traceId
+    //         });
+    //     }
+    // }
+
+
     async viewDecryptedAuditData(req, res) {
         const startTime = Date.now();
         let traceId;
@@ -592,6 +746,16 @@ class AuditController {
 
             const duration = Date.now() - startTime;
 
+            // ✅ AGREGAR: Log del nombre de tabla original para debug
+            console.log('📋 Datos desencriptados obtenidos:', auditData.data.length);
+            console.log('📋 Nombre de tabla original:', auditData.originalTableName);
+            console.log('📋 Estructura de respuesta:', {
+                dataLength: auditData.data?.length,
+                columnsLength: auditData.columns?.length,
+                originalTableName: auditData.originalTableName,
+                isEncrypted: auditData.isEncrypted
+            });
+
             await systemAuditService.logDataAccess(
                 'VIEW_DECRYPTED_AUDIT_DATA_SUCCESS',
                 auditTableName,
@@ -599,17 +763,17 @@ class AuditController {
                 true,
                 {
                     recordCount: auditData.data.length,
+                    originalTableName: auditData.originalTableName, // ✅ AGREGAR para log
                     duration,
                     traceId
                 }
             );
 
-            console.log('📋 Datos desencriptados obtenidos:', auditData.data.length);
             console.log('🔓 === FIN VER DATOS DESENCRIPTADOS ===');
 
             res.json({
                 success: true,
-                ...auditData,
+                ...auditData, // ✅ VERIFICAR: Esto debe incluir originalTableName
                 traceId
             });
         } catch (error) {

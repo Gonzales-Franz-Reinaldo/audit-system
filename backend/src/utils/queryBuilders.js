@@ -339,7 +339,8 @@ class QueryBuilders {
         }
     }
 
-    // Resto de métodos existentes mejorados...
+
+    // TAMBIÉN CORREGIR para MySQL:
     static getMySQLTablesWithAuditInfoQuery(database) {
         return {
             query: `
@@ -350,8 +351,10 @@ class QueryBuilders {
                     t.table_comment,
                     t.create_time,
                     t.update_time,
+                    -- ✅ MEJORAR: Detectar auditoría convencional y encriptada
                     CASE 
-                        WHEN audit_t.table_name IS NOT NULL THEN 1 
+                        WHEN audit_t.table_name IS NOT NULL THEN 1
+                        WHEN enc_meta.encrypted_table_name IS NOT NULL THEN 1
                         ELSE 0 
                     END as has_audit,
                     COALESCE(audit_t.table_rows, 0) as audit_records,
@@ -359,21 +362,34 @@ class QueryBuilders {
                         WHEN audit_t.table_name IS NOT NULL THEN 
                             ROUND(((audit_t.data_length + audit_t.index_length) / 1024 / 1024), 2)
                         ELSE 0
-                    END AS audit_size_mb
+                    END AS audit_size_mb,
+                    -- ✅ AGREGAR: Tipo de auditoría
+                    CASE 
+                        WHEN audit_t.table_name IS NOT NULL THEN 'conventional'
+                        WHEN enc_meta.encrypted_table_name IS NOT NULL THEN 'encrypted'
+                        ELSE NULL
+                    END as audit_type,
+                    -- ✅ AGREGAR: Nombre de tabla de auditoría
+                    COALESCE(audit_t.table_name, enc_meta.encrypted_table_name) as audit_table_name
                 FROM information_schema.tables t
                 LEFT JOIN information_schema.tables audit_t 
                     ON audit_t.table_schema = t.table_schema 
                     AND audit_t.table_name = CONCAT('aud_', t.table_name)
+                -- ✅ AGREGAR: JOIN para metadatos encriptados
+                LEFT JOIN sys_audit_metadata_enc enc_meta
+                    ON enc_meta.original_table_name = t.table_name
                 WHERE t.table_schema = ? 
                 AND t.table_type = 'BASE TABLE'
+                -- ✅ CRÍTICO: Excluir todas las tablas de auditoría
                 AND t.table_name NOT LIKE 'aud_%'
+                AND t.table_name != 'sys_audit_metadata_enc'
+                AND t.table_name NOT REGEXP '^t[0-9a-f]{32}$'
                 ORDER BY t.table_name
             `,
             params: [database]
         };
     }
 
-    
     static getPostgreSQLTablesWithAuditInfoQuery(schema = 'public') {
         return {
             query: `
@@ -384,29 +400,51 @@ class QueryBuilders {
                         quote_ident(t.schemaname) || '.' || quote_ident(t.tablename)
                     )) as size,
                     obj_description(c.oid) as table_comment,
+                    -- ✅ MEJORAR: Detectar auditoría tanto convencional como encriptada
                     CASE 
-                        WHEN audit_t.tablename IS NOT NULL THEN 1 
+                        WHEN audit_t.tablename IS NOT NULL THEN 1
+                        WHEN enc_meta.encrypted_table_name IS NOT NULL THEN 1
                         ELSE 0 
                     END as has_audit,
-                    -- SIMPLIFICAR: Usar 0 por defecto y calcular después
+                    -- Obtener conteo real después
                     0 as audit_records,
                     CASE 
                         WHEN audit_t.tablename IS NOT NULL THEN 
                             pg_size_pretty(pg_total_relation_size(
                                 quote_ident(audit_t.schemaname) || '.' || quote_ident(audit_t.tablename)
                             ))
+                        WHEN enc_meta.encrypted_table_name IS NOT NULL THEN
+                            pg_size_pretty(pg_total_relation_size(
+                                quote_ident(t.schemaname) || '.' || quote_ident(enc_meta.encrypted_table_name)
+                            ))
                         ELSE 'N/A'
-                    END as audit_size
+                    END as audit_size,
+                    -- ✅ AGREGAR: Tipo de auditoría
+                    CASE 
+                        WHEN audit_t.tablename IS NOT NULL THEN 'conventional'
+                        WHEN enc_meta.encrypted_table_name IS NOT NULL THEN 'encrypted'
+                        ELSE NULL
+                    END as audit_type,
+                    -- ✅ AGREGAR: Nombre de tabla de auditoría
+                    COALESCE(audit_t.tablename, enc_meta.encrypted_table_name) as audit_table_name
                 FROM pg_tables t
                 LEFT JOIN pg_stat_user_tables s ON t.tablename = s.relname AND t.schemaname = s.schemaname
                 LEFT JOIN pg_class c ON c.relname = t.tablename AND c.relnamespace = (
                     SELECT oid FROM pg_namespace WHERE nspname = t.schemaname
                 )
+                -- ✅ CORREGIR: JOIN para auditoría convencional
                 LEFT JOIN pg_tables audit_t 
                     ON audit_t.schemaname = t.schemaname 
                     AND audit_t.tablename = ('aud_' || t.tablename)
+                -- ✅ AGREGAR: JOIN para auditoría encriptada
+                LEFT JOIN sys_audit_metadata_enc enc_meta
+                    ON enc_meta.original_table_name = t.tablename
                 WHERE t.schemaname = $1 
+                -- ✅ CRÍTICO: Excluir todas las tablas de auditoría y metadatos
                 AND t.tablename NOT LIKE 'aud_%'
+                AND t.tablename NOT LIKE 't%' 
+                AND t.tablename != 'sys_audit_metadata_enc'
+                AND t.tablename NOT ~ '^t[0-9a-f]{32}$'
                 ORDER BY t.tablename
             `,
             params: [schema]

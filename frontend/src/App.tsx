@@ -220,6 +220,7 @@ function App() {
                         connectionInfo={connectionInfo}
                         onRefresh={refreshData}
                         onAuditSetupComplete={handleAuditSetupComplete}
+                        onViewAuditTable={handleViewAuditTable} // ✅ AGREGAR esta prop
                     />
                 );
 

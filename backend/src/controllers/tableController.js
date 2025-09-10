@@ -3,13 +3,13 @@ const queryBuilders = require('../utils/queryBuilders');
 
 class TableController {
     // Obtener lista de todas las tablas - ARQUITECTURA CORREGIDA
+    // ACTUALIZAR el método principal getTables:
     async getTables(req, res) {
         try {
             const { type, config } = req.body;
 
             console.log(`📊 Obteniendo tablas para ${type}: ${config.database}`);
 
-            // Validar configuración
             if (!type || !config) {
                 return res.status(400).json({
                     success: false,
@@ -19,13 +19,11 @@ class TableController {
 
             if (type.toLowerCase() === 'postgresql' && !config.schema) {
                 config.schema = 'public';
-                console.log(`📝 Usando esquema por defecto: public`);
             }
 
             const connection = await databaseManager.getConnection(type, config);
 
             try {
-                // PRIMERA TENTATIVA: Query completo
                 let queryData;
                 if (type === 'mysql') {
                     queryData = queryBuilders.getMySQLTablesWithAuditInfoQuery(config.database);
@@ -50,136 +48,126 @@ class TableController {
 
                 console.log(`📋 Encontradas ${result.length} tablas (query principal)`);
 
-                // SOLUCIÓN: Usar funciones estáticas en lugar de métodos de instancia
                 const tables = [];
                 
                 for (const row of result) {
-                    try {
-                        const table = {
-                            name: row.table_name,
-                            recordCount: await TableController.parseRecordCount(row, type, connection, config),
-                            size: TableController.formatTableSize(row, type),
-                            comment: row.table_comment || '',
-                            hasAudit: parseInt(row.has_audit) === 1,
-                            auditRecords: 0,
-                            auditSize: 'N/A'
-                        };
-
-                        // Si tiene auditoría, obtener conteo real
-                        if (table.hasAudit) {
-                            try {
-                                const auditCount = await TableController.getAuditRecordCount(type, connection, config, `aud_${row.table_name}`);
-                                table.auditRecords = auditCount;
-                                table.auditSize = TableController.formatAuditSize(row, type);
-                            } catch (auditError) {
-                                console.warn(`Error obteniendo conteo de auditoría para ${row.table_name}:`, auditError.message);
-                                table.auditRecords = 0;
-                            }
-                        }
-
-                        tables.push(table);
-                    } catch (rowError) {
-                        console.warn(`Error procesando tabla ${row.table_name}:`, rowError.message);
-                        // Agregar tabla con información básica
-                        tables.push({
-                            name: row.table_name,
-                            recordCount: 0,
-                            size: 'N/A',
-                            comment: '',
-                            hasAudit: false,
-                            auditRecords: 0,
-                            auditSize: 'N/A'
-                        });
+                    const hasAudit = parseInt(row.has_audit) === 1;
+                    
+                    // ✅ MEJORAR: Obtener conteo real de auditoría si existe
+                    let auditRecordCount = 0;
+                    if (hasAudit && row.audit_table_name) {
+                        auditRecordCount = await TableController.getAuditRecordCount(
+                            type, 
+                            connection, 
+                            config, 
+                            row.audit_table_name,
+                            row.audit_type || 'conventional'
+                        );
                     }
+
+                    const table = {
+                        name: row.table_name,
+                        recordCount: await TableController.parseRecordCount(row, type, connection, config),
+                        size: TableController.formatTableSize(row, type),
+                        comment: row.table_comment || null,
+                        // ✅ INFORMACIÓN DE AUDITORÍA MEJORADA
+                        hasAudit: hasAudit,
+                        auditTableName: hasAudit ? row.audit_table_name : null,
+                        auditType: hasAudit ? row.audit_type : null,
+                        auditRecordCount: auditRecordCount,
+                        auditSize: hasAudit ? TableController.formatAuditSize(row, type) : null,
+                        // ✅ AGREGAR: Estado de auditoría más descriptivo
+                        auditStatus: hasAudit 
+                            ? (row.audit_type === 'encrypted' ? 'Auditoría Encriptada' : 'Auditoría Convencional')
+                            : 'Sin Auditoría',
+                        // ✅ AGREGAR: Información de timestamps
+                        createdAt: row.create_time || null,
+                        updatedAt: row.update_time || null
+                    };
+
+                    tables.push(table);
                 }
 
                 res.json({
                     success: true,
                     data: tables,
                     totalTables: tables.length,
-                    tablesWithAudit: tables.filter(t => t.hasAudit).length
+                    tablesWithAudit: tables.filter(t => t.hasAudit).length,
+                    // ✅ AGREGAR: Estadísticas por tipo
+                    auditStatistics: {
+                        conventional: tables.filter(t => t.auditType === 'conventional').length,
+                        encrypted: tables.filter(t => t.auditType === 'encrypted').length,
+                        withoutAudit: tables.filter(t => !t.hasAudit).length
+                    }
                 });
 
             } catch (queryError) {
                 console.error('❌ Error en query principal:', queryError);
                 
-                // FALLBACK: Query ultra-simple
-                console.log('🔄 Usando query de fallback ultra-simple...');
+                // FALLBACK: Query ultra-simple SIN tablas de auditoría
+                console.log('🔄 Usando query de fallback...');
                 
                 try {
-                    let query;
-                    let params = [];
-
+                    let fallbackQuery;
                     if (type === 'mysql') {
-                        query = `
-                            SELECT 
-                                table_name,
-                                '' as table_comment
-                            FROM information_schema.tables 
-                            WHERE table_schema = ? 
-                            AND table_type = 'BASE TABLE'
-                            AND table_name NOT LIKE 'aud_%'
-                            ORDER BY table_name
-                        `;
-                        params = [config.database];
+                        fallbackQuery = queryBuilders.getMySQLTablesQuery(config.database);
                     } else {
-                        query = `
-                            SELECT 
-                                tablename as table_name,
-                                '' as table_comment
-                            FROM pg_tables 
-                            WHERE schemaname = $1 
-                            AND tablename NOT LIKE 'aud_%'
-                            ORDER BY tablename
-                        `;
-                        params = [config.schema || 'public'];
+                        fallbackQuery = queryBuilders.getPostgreSQLTablesQuery(config.schema || 'public');
                     }
 
-                    let result;
+                    let fallbackResult;
                     if (type === 'mysql') {
-                        [result] = await connection.execute(query, params);
+                        [fallbackResult] = await connection.execute(fallbackQuery.query, fallbackQuery.params);
                     } else {
                         const client = await connection.connect();
                         try {
-                            const queryResult = await client.query(query, params);
-                            result = queryResult.rows;
+                            const queryResult = await client.query(fallbackQuery.query, fallbackQuery.params);
+                            fallbackResult = queryResult.rows;
                         } finally {
                             client.release();
                         }
                     }
 
-                    // USAR FUNCIONES ESTÁTICAS en fallback también
-                    const tables = [];
-                    for (const row of result) {
-                        const hasAudit = await TableController.checkAuditTableExists(type, connection, config, `aud_${row.table_name}`);
-                        const realCount = await TableController.getRealRecordCount(type, connection, config, row.table_name);
-                        
-                        tables.push({
+                    const simpleTables = fallbackResult
+                        // ✅ FILTRAR tablas de auditoría en fallback también
+                        .filter(row => 
+                            !row.table_name.startsWith('aud_') &&
+                            !row.table_name.match(/^t[0-9a-f]{32}$/) &&
+                            row.table_name !== 'sys_audit_metadata_enc'
+                        )
+                        .map(row => ({
                             name: row.table_name,
-                            recordCount: realCount,
-                            size: 'N/A',
-                            comment: row.table_comment || '',
-                            hasAudit: hasAudit,
-                            auditRecords: hasAudit ? await TableController.getAuditRecordCount(type, connection, config, `aud_${row.table_name}`) : 0,
-                            auditSize: 'N/A'
-                        });
-                    }
-
-                    console.log(`📋 Encontradas ${tables.length} tablas (fallback)`);
+                            recordCount: parseInt(row.table_rows) || 0,
+                            size: type === 'mysql' ? `${row.size_mb || 0} MB` : (row.size_mb || 'N/A'),
+                            comment: row.table_comment || null,
+                            hasAudit: false, // No se puede determinar en fallback
+                            auditTableName: null,
+                            auditType: null,
+                            auditRecordCount: 0,
+                            auditSize: null,
+                            auditStatus: 'Desconocido',
+                            createdAt: row.create_time || null,
+                            updatedAt: row.update_time || null
+                        }));
 
                     res.json({
                         success: true,
-                        data: tables,
-                        totalTables: tables.length,
-                        tablesWithAudit: tables.filter(t => t.hasAudit).length,
-                        warning: 'Usando query simplificada debido a errores en query completa'
+                        data: simpleTables,
+                        totalTables: simpleTables.length,
+                        tablesWithAudit: 0,
+                        auditStatistics: {
+                            conventional: 0,
+                            encrypted: 0,
+                            withoutAudit: simpleTables.length
+                        },
+                        fallbackMode: true
                     });
 
                 } catch (fallbackError) {
                     console.error('❌ Error en query de fallback:', fallbackError);
                     res.status(500).json({
                         success: false,
-                        error: 'Error obteniendo lista de tablas (query de fallback)',
+                        error: 'Error obteniendo lista de tablas',
                         details: fallbackError.message
                     });
                 }
@@ -194,6 +182,7 @@ class TableController {
             });
         }
     }
+
 
     // CONVERTIR TODOS LOS MÉTODOS A ESTÁTICOS
     static async parseRecordCount(row, type, connection, config) {
@@ -211,15 +200,57 @@ class TableController {
         }
     }
 
-    static async getAuditRecordCount(type, connection, config, auditTableName) {
+    // static async getAuditRecordCount(type, connection, config, auditTableName) {
+    //     try {
+    //         let query;
+    //         let params = [];
+
+    //         if (type === 'mysql') {
+    //             query = `SELECT COUNT(*) as count FROM \`${auditTableName}\``;
+    //         } else {
+    //             query = `SELECT COUNT(*) as count FROM "${config.schema || 'public'}"."${auditTableName}"`;
+    //         }
+
+    //         let result;
+    //         if (type === 'mysql') {
+    //             [result] = await connection.execute(query, params);
+    //             return parseInt(result[0].count) || 0;
+    //         } else {
+    //             const client = await connection.connect();
+    //             try {
+    //                 const queryResult = await client.query(query, params);
+    //                 return parseInt(queryResult.rows[0].count) || 0;
+    //             } finally {
+    //                 client.release();
+    //             }
+    //         }
+    //     } catch (error) {
+    //         console.warn(`Error contando registros en ${auditTableName}:`, error.message);
+    //         return 0;
+    //     }
+    // }
+
+    static async getAuditRecordCount(type, connection, config, auditTableName, auditType = 'conventional') {
         try {
             let query;
             let params = [];
 
             if (type === 'mysql') {
-                query = `SELECT COUNT(*) as count FROM \`${auditTableName}\``;
+                if (auditType === 'encrypted') {
+                    // Para tablas encriptadas, usar el nombre encriptado directamente
+                    query = `SELECT COUNT(*) as count FROM \`${auditTableName}\``;
+                } else {
+                    // Para auditoría convencional
+                    query = `SELECT COUNT(*) as count FROM \`${auditTableName}\``;
+                }
             } else {
-                query = `SELECT COUNT(*) as count FROM "${config.schema || 'public'}"."${auditTableName}"`;
+                if (auditType === 'encrypted') {
+                    // Para tablas encriptadas en PostgreSQL
+                    query = `SELECT COUNT(*) as count FROM "${config.schema || 'public'}"."${auditTableName}"`;
+                } else {
+                    // Para auditoría convencional
+                    query = `SELECT COUNT(*) as count FROM "${config.schema || 'public'}"."${auditTableName}"`;
+                }
             }
 
             let result;
@@ -229,7 +260,7 @@ class TableController {
             } else {
                 const client = await connection.connect();
                 try {
-                    const queryResult = await client.query(query, params);
+                    const queryResult = await client.query(query);
                     return parseInt(queryResult.rows[0].count) || 0;
                 } finally {
                     client.release();
@@ -240,6 +271,7 @@ class TableController {
             return 0;
         }
     }
+
 
     static formatTableSize(row, type) {
         if (type === 'mysql') {

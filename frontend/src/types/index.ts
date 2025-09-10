@@ -20,15 +20,42 @@ export interface ConnectionInfo {
     currentDatabase?: string;
 }
 
-// Información de tabla
+
 export interface TableInfo {
     name: string;
+    recordCount: number;
+    size?: string;
+    comment?: string;
+    // ✅ CORREGIR: Todas estas propiedades deben ser opcionales
     hasAudit: boolean;
     auditTableName?: string;
-    recordCount?: number;
+    auditType?: 'conventional' | 'encrypted' | null;
+    auditRecordCount?: number; // ✅ DEBE ser opcional
+    auditSize?: string;
+    auditStatus?: string;
+    // ✅ AGREGAR: Información de timestamps
+    createdAt?: string;
+    updatedAt?: string;
+    // Propiedades existentes
     columns?: ColumnInfo[];
     indexes?: IndexInfo[];
     statistics?: TableStatistics;
+}
+
+// ✅ AGREGAR: Nuevas interfaces para estadísticas
+export interface AuditStatistics {
+    conventional: number;
+    encrypted: number;
+    withoutAudit: number;
+}
+
+export interface TablesResponse {
+    success: boolean;
+    data: TableInfo[];
+    totalTables: number;
+    tablesWithAudit: number;
+    auditStatistics?: AuditStatistics;
+    fallbackMode?: boolean;
 }
 
 // Información de columna

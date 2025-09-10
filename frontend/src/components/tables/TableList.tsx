@@ -4,24 +4,22 @@ import {
     Table,
     Shield,
     ShieldCheck,
-    Settings,
-    RefreshCw,
-    Search,
-    Filter,
-    ChevronRight,
     AlertTriangle,
-    CheckCircle,
-    Loader2,
-    Lock,
     Database,
-    X,
+    Search,
+    RefreshCw,
+    Loader2,
     Info,
-    Key,
-    CheckCircle as CheckCircleIcon,
-    XCircle
+    Eye,
+    Trash2,
+    CheckCircle,
+    X,
+    Clock,
+    XCircle,
+    Key
 } from 'lucide-react';
 
-import { TableInfo, ConnectionInfo } from '../../types';
+import { TableInfo, ConnectionInfo, AuditTable } from '../../types';
 import { useApi } from '../../hooks/useApi';
 import apiService from '../../services/api';
 import TableAuditSetup from './TableAuditSetup';
@@ -32,6 +30,7 @@ interface TableListProps {
     connectionInfo: ConnectionInfo;
     onRefresh: () => void;
     onAuditSetupComplete: () => void;
+    onViewAuditTable?: (auditTable: AuditTable) => void; // ✅ AGREGAR esta prop opcional
 }
 
 const TableList: React.FC<TableListProps> = ({
@@ -39,7 +38,8 @@ const TableList: React.FC<TableListProps> = ({
     loading,
     connectionInfo,
     onRefresh,
-    onAuditSetupComplete
+    onAuditSetupComplete,
+    onViewAuditTable // ✅ AGREGAR esta prop
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState<'all' | 'with-audit' | 'without-audit'>('all');
@@ -57,11 +57,11 @@ const TableList: React.FC<TableListProps> = ({
     const { execute: setupAllAudit } = useApi(
         async (type: string, config: any, encryptionKey: string, selectedTables: string[]) => {
             console.log('🚀 Ejecutando setupAllTablesAudit');
-            
+
             if (!apiService || typeof apiService.setupAllTablesAudit !== 'function') {
                 throw new Error('ApiService o setupAllTablesAudit no está disponible');
             }
-            
+
             return apiService.setupAllTablesAudit(type, config, selectedTables, encryptionKey);
         },
         false
@@ -113,7 +113,7 @@ const TableList: React.FC<TableListProps> = ({
         setBulkResults([]);
     };
 
-    
+
     // ACTUALIZAR la función handleExecuteBulkSetup:
     const handleExecuteBulkSetup = async () => {
         if (!bulkEncryptionKey || selectedTablesForBulk.length === 0) {
@@ -146,10 +146,10 @@ const TableList: React.FC<TableListProps> = ({
             if (result && result.results) {
                 setBulkResults(result.results);
                 setBulkSetupStep('results');
-                
+
                 const successCount = result.summary?.successful || 0;
                 const failedCount = result.summary?.failed || 0;
-                
+
                 // ✅ TOAST MÁS INFORMATIVO
                 if (successCount > 0 && failedCount === 0) {
                     toast.success(`🎉 Todas las tablas configuradas exitosamente: ${successCount}/${selectedTablesForBulk.length}`);
@@ -160,7 +160,7 @@ const TableList: React.FC<TableListProps> = ({
                 } else {
                     toast.error(`❌ No se pudo configurar ninguna tabla. ${failedCount} errores.`);
                 }
-                
+
                 onRefresh(); // Refrescar la lista de tablas
             } else {
                 throw new Error('Respuesta inválida del servidor');
@@ -203,6 +203,40 @@ const TableList: React.FC<TableListProps> = ({
         } else {
             setSelectedTablesForBulk(tablesWithoutAudit.map(t => t.name));
         }
+    };
+
+    // ✅ AGREGAR: Nuevos handlers para las acciones
+    const handleViewAudit = (table: TableInfo) => {
+        // Navegar a la vista de auditoría para esta tabla
+        if (table.auditTableName) {
+            const auditTable: AuditTable = {
+                tableName: table.auditTableName,
+                originalTable: table.name,
+                hasEncryption: table.auditType === 'encrypted',
+                recordCount: table.auditRecordCount || 0, // ✅ CORREGIR: Manejar undefined
+                isEncrypted: table.auditType === 'encrypted',
+                isEncryptedTable: table.auditType === 'encrypted'
+            };
+            
+            // Si hay un handler para navegar a auditoría, usarlo
+            if (onViewAuditTable) {
+                onViewAuditTable(auditTable);
+            } else {
+                toast.success(`Tabla de auditoría: ${table.auditTableName}`); // ✅ CORREGIR: usar success en lugar de info
+            }
+        }
+    };
+
+    const handleRemoveAudit = (table: TableInfo) => {
+        if (window.confirm(`¿Estás seguro de que deseas eliminar la auditoría de la tabla "${table.name}"?`)) {
+            // Aquí implementar la lógica de eliminación
+            toast.loading('Funcionalidad de eliminación de auditoría pendiente de implementar'); // ✅ CORREGIR: usar loading
+        }
+    };
+
+    const handleViewTableInfo = (table: TableInfo) => {
+        // Mostrar modal con información detallada de la tabla
+        toast.success(`Información de tabla: ${table.name} - ${table.recordCount} registros`); // ✅ CORREGIR: usar success
     };
 
     return (
@@ -307,7 +341,7 @@ const TableList: React.FC<TableListProps> = ({
                         </select>
                     </div>
 
-                    {/* Acciones masivas - MEJORADO */}
+                    {/* Acciones masivas - CORREGIDO */}
                     {stats.withoutAudit > 0 && (
                         <div className="flex space-x-2">
                             <button
@@ -318,7 +352,7 @@ const TableList: React.FC<TableListProps> = ({
                                 <Shield className="w-4 h-4 mr-2" />
                                 Configurar Todo ({stats.withoutAudit})
                             </button>
-                            
+
                             {/* Información adicional */}
                             <div className="flex items-center text-sm text-gray-600 bg-gray-100 px-3 py-2 rounded-md">
                                 <Info className="w-4 h-4 mr-1" />
@@ -326,7 +360,7 @@ const TableList: React.FC<TableListProps> = ({
                             </div>
                         </div>
                     )}
-                                    </div>
+                </div>
             </div>
 
             {/* Lista de tablas */}
@@ -357,61 +391,101 @@ const TableList: React.FC<TableListProps> = ({
                                 className="p-4 hover:bg-gray-50 transition-colors"
                             >
                                 <div className="flex items-center justify-between">
-                                    <div className="flex items-center space-x-4">
-                                        <div className={`
-                      p-2 rounded-lg
-                      ${table.hasAudit
-                                                ? 'bg-green-100 text-green-600'
-                                                : 'bg-gray-100 text-gray-600'
-                                            }
-                    `}>
-                                            {table.hasAudit ? (
-                                                <ShieldCheck className="w-5 h-5" />
-                                            ) : (
-                                                <Table className="w-5 h-5" />
-                                            )}
-                                        </div>
-
-                                        <div>
-                                            <h3 className="text-lg font-medium text-gray-900">
-                                                {table.name}
-                                            </h3>
-                                            <div className="flex items-center space-x-4 text-sm text-gray-500">
-                                                <span>
-                                                    {table.recordCount !== undefined
-                                                        ? `${table.recordCount.toLocaleString()} registros`
-                                                        : 'Registros: N/A'
-                                                    }
-                                                </span>
-                                                {table.hasAudit && table.auditTableName && (
-                                                    <span className="flex items-center text-green-600">
-                                                        <Lock className="w-3 h-3 mr-1" />
-                                                        {table.auditTableName}
-                                                    </span>
-                                                )}
+                                    <div className="flex-1">
+                                        <div className="flex items-center space-x-3">
+                                            {/* Icono de tabla */}
+                                            <Table className="w-5 h-5 text-gray-500" />
+                                            
+                                            {/* Nombre y información básica */}
+                                            <div>
+                                                <h3 className="text-lg font-medium text-gray-900">
+                                                    {table.name}
+                                                </h3>
+                                                <div className="flex items-center space-x-4 text-sm text-gray-500">
+                                                    <span>{table.recordCount} registros</span>
+                                                    {table.size && <span>{table.size}</span>}
+                                                    {table.comment && (
+                                                        <span className="italic">"{table.comment}"</span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    <div className="flex items-center space-x-2">
-                                        {table.hasAudit ? (
-                                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                                                <CheckCircle className="w-3 h-3 mr-1" />
-                                                Auditado
-                                            </span>
-                                        ) : (
-                                            <button
-                                                onClick={() => handleSetupAudit(table)}
-                                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-indigo-600 bg-indigo-100 hover:bg-indigo-200"
-                                            >
-                                                <Shield className="w-4 h-4 mr-2" />
-                                                Configurar Auditoría
-                                            </button>
-                                        )}
+                                    {/* Estado de auditoría y acciones */}
+                                    <div className="flex items-center space-x-4">
+                                        {/* ✅ CORREGIR: Badge de estado de auditoría */}
+                                        <div className="flex items-center space-x-2">
+                                            {table.hasAudit ? (
+                                                <div className="flex items-center space-x-2">
+                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                        table.auditType === 'encrypted' 
+                                                            ? 'bg-purple-100 text-purple-800' 
+                                                            : 'bg-green-100 text-green-800'
+                                                    }`}>
+                                                        <ShieldCheck className="w-3 h-3 mr-1" />
+                                                        {table.auditType === 'encrypted' ? 'Encriptada' : 'Convencional'}
+                                                    </span>
+                                                    
+                                                    {/* Información adicional de auditoría */}
+                                                    <div className="text-xs text-gray-500">
+                                                        <div>{table.auditRecordCount || 0} reg. auditoría</div>
+                                                        {table.auditSize && <div>{table.auditSize}</div>}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-700">
+                                                    <AlertTriangle className="w-3 h-3 mr-1" />
+                                                    Sin Auditoría
+                                                </span>
+                                            )}
+                                        </div>
 
-                                        <button className="p-2 text-gray-400 hover:text-gray-600" title="Ver detalles de la tabla">
-                                            <ChevronRight className="w-4 h-4" />
-                                        </button>
+                                        {/* Acciones */}
+                                        <div className="flex items-center space-x-2">
+                                            {/* ✅ CORREGIR: Solo mostrar botón si NO tiene auditoría */}
+                                            {!table.hasAudit ? (
+                                                <button
+                                                    onClick={() => handleSetupAudit(table)}
+                                                    className="flex items-center px-3 py-1.5 bg-indigo-600 text-white text-sm rounded-md hover:bg-indigo-700 transition-colors"
+                                                    title="Configurar auditoría para esta tabla"
+                                                >
+                                                    <Shield className="w-4 h-4 mr-1" />
+                                                    Configurar
+                                                </button>
+                                            ) : (
+                                                <div className="flex items-center space-x-2">
+                                                    {/* ✅ CORREGIR: Botón para ver auditoría */}
+                                                    <button
+                                                        onClick={() => handleViewAudit(table)}
+                                                        className="flex items-center px-3 py-1.5 bg-green-600 text-white text-sm rounded-md hover:bg-green-700 transition-colors"
+                                                        title="Ver registros de auditoría"
+                                                    >
+                                                        <Eye className="w-4 h-4 mr-1" />
+                                                        Ver Auditoría
+                                                    </button>
+                                                    
+                                                    {/* ✅ CORREGIR: Botón para remover auditoría */}
+                                                    <button
+                                                        onClick={() => handleRemoveAudit(table)}
+                                                        className="flex items-center px-3 py-1.5 bg-red-600 text-white text-sm rounded-md hover:bg-red-700 transition-colors"
+                                                        title="Eliminar auditoría"
+                                                    >
+                                                        <Trash2 className="w-4 h-4 mr-1" />
+                                                        Eliminar
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {/* Botón de información */}
+                                            <button
+                                                onClick={() => handleViewTableInfo(table)}
+                                                className="p-1.5 text-gray-400 hover:text-gray-600 rounded-md transition-colors"
+                                                title="Ver información detallada"
+                                            >
+                                                <Info className="w-4 h-4" />
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

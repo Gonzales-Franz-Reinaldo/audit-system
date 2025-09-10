@@ -12,40 +12,84 @@ class AuditService {
 
     async getAuditTables(dbType, connection, config) {
         try {
+            console.log('📋 === INICIO OBTENER TABLAS AUDITORÍA ===');
+            
             let query;
             let params = [];
 
             if (dbType === 'mysql') {
                 query = `
                     SELECT 
-                        table_name,
-                        table_rows as record_count
-                    FROM information_schema.tables 
-                    WHERE table_schema = ? 
-                    AND table_name LIKE 'aud_%'
-                    ORDER BY table_name
+                        t.table_name,
+                        CASE 
+                            WHEN t.table_name LIKE 'aud_%' THEN SUBSTRING(t.table_name, 5)
+                            WHEN t.table_name REGEXP '^t[0-9a-f]{32}$' THEN 'ENCRYPTED_TABLE'
+                            ELSE 'UNKNOWN'
+                        END as original_table
+                    FROM information_schema.tables t
+                    WHERE t.table_schema = ? 
+                    AND (
+                        t.table_name LIKE 'aud_%' OR 
+                        t.table_name REGEXP '^t[0-9a-f]{32}$'
+                    )
+                    ORDER BY t.table_name
                 `;
                 params = [config.database];
-            } else if (dbType === 'postgresql') {
-                // ✅ MEJORAR: Incluir mapeo desde tabla de metadatos
-                query = `
-                    SELECT 
-                        t.tablename as table_name,
-                        COALESCE(m.original_table_name, 
+            } else {
+                // ✅ VERIFICAR si la tabla de metadatos existe antes de hacer JOIN
+                const client = await connection.connect();
+                let hasMetadataTable = false;
+                
+                try {
+                    await client.query(`SELECT 1 FROM sys_audit_metadata_enc LIMIT 1`);
+                    hasMetadataTable = true;
+                    console.log('✅ Tabla de metadatos encontrada');
+                } catch (metaError) {
+                    console.log('⚠️ Tabla de metadatos no existe, usando query simple');
+                    hasMetadataTable = false;
+                } finally {
+                    client.release();
+                }
+
+                if (hasMetadataTable) {
+                    // Query con metadatos
+                    query = `
+                        SELECT 
+                            t.tablename as table_name,
+                            COALESCE(m.original_table_name, 
+                                CASE 
+                                    WHEN t.tablename LIKE 'aud_%' THEN SUBSTRING(t.tablename, 5)
+                                    ELSE 'ENCRYPTED_TABLE'
+                                END) as original_table
+                        FROM pg_tables t
+                        LEFT JOIN "public"."sys_audit_metadata_enc" m 
+                            ON t.tablename = m.encrypted_table_name
+                        WHERE t.schemaname = $1 
+                        AND (
+                            t.tablename LIKE 'aud_%' OR 
+                            t.tablename ~ '^t[0-9a-f]{32}$'
+                        )
+                        ORDER BY t.tablename
+                    `;
+                } else {
+                    // Query simple sin metadatos
+                    query = `
+                        SELECT 
+                            t.tablename as table_name,
                             CASE 
-                                WHEN t.tablename LIKE 'aud_%' THEN SUBSTRING(t.tablename, 5)
-                                ELSE 'ENCRYPTED_TABLE'
-                            END) as original_table
-                    FROM pg_tables t
-                    LEFT JOIN "${config.schema || 'public'}"."sys_audit_metadata_enc" m 
-                        ON t.tablename = m.encrypted_table_name
-                    WHERE t.schemaname = $1 
-                    AND (
-                        t.tablename LIKE 'aud_%' OR 
-                        t.tablename ~ '^t[0-9a-f]{32}$'
-                    )
-                    ORDER BY t.tablename
-                `;
+                                WHEN t.tablename LIKE 'aud_%' THEN SUBSTRING(t.tablename FROM 5)
+                                WHEN t.tablename ~ '^t[0-9a-f]{32}$' THEN 'ENCRYPTED_TABLE'
+                                ELSE 'UNKNOWN'
+                            END as original_table
+                        FROM pg_tables t
+                        WHERE t.schemaname = $1 
+                        AND (
+                            t.tablename LIKE 'aud_%' OR 
+                            t.tablename ~ '^t[0-9a-f]{32}$'
+                        )
+                        ORDER BY t.tablename
+                    `;
+                }
                 params = [config.schema || 'public'];
             }
 
@@ -95,6 +139,7 @@ class AuditService {
             });
 
             console.log('📋 Tablas de auditoría mapeadas:', auditTables);
+            console.log('📋 === FIN OBTENER TABLAS AUDITORÍA ===');
             return auditTables;
 
         } catch (error) {

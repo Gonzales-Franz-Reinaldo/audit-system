@@ -390,6 +390,53 @@ class QueryBuilders {
         };
     }
 
+    // ✅ AGREGAR: Query de fallback segura sin tabla de metadatos
+    static getPostgreSQLTablesWithAuditInfoQuerySafe(schema = 'public') {
+        return {
+            query: `
+                SELECT 
+                    t.tablename as table_name,
+                    COALESCE(s.n_tup_ins + s.n_tup_upd + s.n_tup_del, 0) as total_changes,
+                    pg_size_pretty(pg_total_relation_size(
+                        quote_ident(t.schemaname) || '.' || quote_ident(t.tablename)
+                    )) as size,
+                    obj_description(c.oid) as table_comment,
+                    -- ✅ SIMPLE: Solo detectar auditoría convencional
+                    CASE 
+                        WHEN audit_t.tablename IS NOT NULL THEN 1
+                        ELSE 0 
+                    END as has_audit,
+                    0 as audit_records,
+                    CASE 
+                        WHEN audit_t.tablename IS NOT NULL THEN 
+                            pg_size_pretty(pg_total_relation_size(
+                                quote_ident(audit_t.schemaname) || '.' || quote_ident(audit_t.tablename)
+                            ))
+                        ELSE 'N/A'
+                    END as audit_size,
+                    CASE 
+                        WHEN audit_t.tablename IS NOT NULL THEN 'conventional'
+                        ELSE NULL
+                    END as audit_type,
+                    audit_t.tablename as audit_table_name
+                FROM pg_tables t
+                LEFT JOIN pg_stat_user_tables s ON t.tablename = s.relname AND t.schemaname = s.schemaname
+                LEFT JOIN pg_class c ON c.relname = t.tablename AND c.relnamespace = (
+                    SELECT oid FROM pg_namespace WHERE nspname = t.schemaname
+                )
+                LEFT JOIN pg_tables audit_t 
+                    ON audit_t.schemaname = t.schemaname 
+                    AND audit_t.tablename = ('aud_' || t.tablename)
+                WHERE t.schemaname = $1 
+                AND t.tablename NOT LIKE 'aud_%'
+                AND t.tablename NOT SIMILAR TO 't[0-9a-f]{32}'
+                AND t.tablename != 'sys_audit_metadata_enc'
+                ORDER BY t.tablename
+            `,
+            params: [schema]
+        };
+    }
+
     static getPostgreSQLTablesWithAuditInfoQuery(schema = 'public') {
         return {
             query: `
@@ -400,7 +447,7 @@ class QueryBuilders {
                         quote_ident(t.schemaname) || '.' || quote_ident(t.tablename)
                     )) as size,
                     obj_description(c.oid) as table_comment,
-                    -- ✅ MEJORAR: Detectar auditoría tanto convencional como encriptada
+                    -- ✅ CORREGIR: Detectar auditoría tanto convencional como encriptada
                     CASE 
                         WHEN audit_t.tablename IS NOT NULL THEN 1
                         WHEN enc_meta.encrypted_table_name IS NOT NULL THEN 1
@@ -436,21 +483,23 @@ class QueryBuilders {
                 LEFT JOIN pg_tables audit_t 
                     ON audit_t.schemaname = t.schemaname 
                     AND audit_t.tablename = ('aud_' || t.tablename)
-                -- ✅ AGREGAR: JOIN para auditoría encriptada
-                LEFT JOIN sys_audit_metadata_enc enc_meta
-                    ON enc_meta.original_table_name = t.tablename
+                -- ✅ CORREGIR: JOIN opcional para auditoría encriptada (solo si la tabla existe)
+                LEFT JOIN (
+                    SELECT encrypted_table_name, original_table_name 
+                    FROM sys_audit_metadata_enc 
+                    WHERE sys_audit_metadata_enc IS NOT NULL
+                ) enc_meta ON enc_meta.original_table_name = t.tablename
                 WHERE t.schemaname = $1 
                 -- ✅ CRÍTICO: Excluir todas las tablas de auditoría y metadatos
                 AND t.tablename NOT LIKE 'aud_%'
-                AND t.tablename NOT LIKE 't%' 
+                AND t.tablename NOT SIMILAR TO 't[0-9a-f]{32}'
                 AND t.tablename != 'sys_audit_metadata_enc'
-                AND t.tablename NOT ~ '^t[0-9a-f]{32}$'
                 ORDER BY t.tablename
             `,
             params: [schema]
         };
     }
-
+    
     // Query para validación de integridad de encriptación
     static getEncryptionIntegrityCheckQuery(dbType, schema, auditTableName, sampleSize = 100) {
         if (dbType === 'mysql') {

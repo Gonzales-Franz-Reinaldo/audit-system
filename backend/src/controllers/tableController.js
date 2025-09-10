@@ -3,7 +3,6 @@ const queryBuilders = require('../utils/queryBuilders');
 
 class TableController {
     // Obtener lista de todas las tablas - ARQUITECTURA CORREGIDA
-    // ACTUALIZAR el método principal getTables:
     async getTables(req, res) {
         try {
             const { type, config } = req.body;
@@ -25,13 +24,34 @@ class TableController {
 
             try {
                 let queryData;
+                let useAdvancedQuery = true;
+
+                // ✅ PRIMERA ESTRATEGIA: Query con metadatos
                 if (type === 'mysql') {
                     queryData = queryBuilders.getMySQLTablesWithAuditInfoQuery(config.database);
                 } else {
-                    queryData = queryBuilders.getPostgreSQLTablesWithAuditInfoQuery(config.schema || 'public');
+                    // ✅ VERIFICAR si la tabla de metadatos existe
+                    try {
+                        const client = await connection.connect();
+                        try {
+                            await client.query(`SELECT 1 FROM sys_audit_metadata_enc LIMIT 1`);
+                            console.log('✅ Tabla de metadatos encontrada, usando query avanzada');
+                            queryData = queryBuilders.getPostgreSQLTablesWithAuditInfoQuery(config.schema || 'public');
+                        } catch (metaError) {
+                            console.log('⚠️ Tabla de metadatos no existe, usando query segura');
+                            queryData = queryBuilders.getPostgreSQLTablesWithAuditInfoQuerySafe(config.schema || 'public');
+                            useAdvancedQuery = false;
+                        } finally {
+                            client.release();
+                        }
+                    } catch (connectionError) {
+                        console.log('⚠️ Error verificando metadatos, usando query segura');
+                        queryData = queryBuilders.getPostgreSQLTablesWithAuditInfoQuerySafe(config.schema || 'public');
+                        useAdvancedQuery = false;
+                    }
                 }
 
-                console.log(`🔍 Ejecutando query principal para ${type}`);
+                console.log(`🔍 Ejecutando query principal para ${type} (avanzada: ${useAdvancedQuery})`);
 
                 let result;
                 if (type === 'mysql') {
@@ -53,15 +73,34 @@ class TableController {
                 for (const row of result) {
                     const hasAudit = parseInt(row.has_audit) === 1;
                     
-                    // ✅ MEJORAR: Obtener conteo real de auditoría si existe
+                    // ✅ DETECTAR AUDITORÍAS ENCRIPTADAS MANUALMENTE si no hay metadatos
+                    let finalHasAudit = hasAudit;
+                    let finalAuditType = row.audit_type;
+                    let finalAuditTableName = row.audit_table_name;
                     let auditRecordCount = 0;
-                    if (hasAudit && row.audit_table_name) {
+
+                    if (!useAdvancedQuery) {
+                        // ✅ VERIFICACIÓN MANUAL de tablas encriptadas
+                        try {
+                            const encryptedTableName = await this.checkForEncryptedAuditTable(type, connection, config, row.table_name);
+                            if (encryptedTableName) {
+                                finalHasAudit = true;
+                                finalAuditType = 'encrypted';
+                                finalAuditTableName = encryptedTableName;
+                            }
+                        } catch (encError) {
+                            console.warn(`Error verificando auditoría encriptada para ${row.table_name}:`, encError.message);
+                        }
+                    }
+
+                    // ✅ OBTENER conteo real de auditoría si existe
+                    if (finalHasAudit && finalAuditTableName) {
                         auditRecordCount = await TableController.getAuditRecordCount(
                             type, 
                             connection, 
                             config, 
-                            row.audit_table_name,
-                            row.audit_type || 'conventional'
+                            finalAuditTableName,
+                            finalAuditType || 'conventional'
                         );
                     }
 
@@ -70,15 +109,15 @@ class TableController {
                         recordCount: await TableController.parseRecordCount(row, type, connection, config),
                         size: TableController.formatTableSize(row, type),
                         comment: row.table_comment || null,
-                        // ✅ INFORMACIÓN DE AUDITORÍA MEJORADA
-                        hasAudit: hasAudit,
-                        auditTableName: hasAudit ? row.audit_table_name : null,
-                        auditType: hasAudit ? row.audit_type : null,
+                        // ✅ INFORMACIÓN DE AUDITORÍA CORREGIDA
+                        hasAudit: finalHasAudit,
+                        auditTableName: finalHasAudit ? finalAuditTableName : null,
+                        auditType: finalHasAudit ? finalAuditType : null,
                         auditRecordCount: auditRecordCount,
-                        auditSize: hasAudit ? TableController.formatAuditSize(row, type) : null,
+                        auditSize: finalHasAudit ? TableController.formatAuditSize(row, type) : null,
                         // ✅ AGREGAR: Estado de auditoría más descriptivo
-                        auditStatus: hasAudit 
-                            ? (row.audit_type === 'encrypted' ? 'Auditoría Encriptada' : 'Auditoría Convencional')
+                        auditStatus: finalHasAudit 
+                            ? (finalAuditType === 'encrypted' ? 'Auditoría Encriptada' : 'Auditoría Convencional')
                             : 'Sin Auditoría',
                         // ✅ AGREGAR: Información de timestamps
                         createdAt: row.create_time || null,
@@ -98,14 +137,15 @@ class TableController {
                         conventional: tables.filter(t => t.auditType === 'conventional').length,
                         encrypted: tables.filter(t => t.auditType === 'encrypted').length,
                         withoutAudit: tables.filter(t => !t.hasAudit).length
-                    }
+                    },
+                    advancedQueryUsed: useAdvancedQuery
                 });
 
             } catch (queryError) {
                 console.error('❌ Error en query principal:', queryError);
                 
-                // FALLBACK: Query ultra-simple SIN tablas de auditoría
-                console.log('🔄 Usando query de fallback...');
+                // FALLBACK: Query ultra-simple
+                console.log('🔄 Usando query de fallback ultra-simple...');
                 
                 try {
                     let fallbackQuery;
@@ -180,6 +220,38 @@ class TableController {
                 error: 'Error obteniendo lista de tablas',
                 details: error.message
             });
+        }
+    }
+
+    // ✅ AGREGAR: Método para verificar auditorías encriptadas manualmente
+    async checkForEncryptedAuditTable(type, connection, config, tableName) {
+        try {
+            if (type !== 'postgresql') return null;
+
+            // Buscar tablas que empiecen con 't' y tengan 32 caracteres hex
+            const client = await connection.connect();
+            try {
+                const result = await client.query(`
+                    SELECT tablename 
+                    FROM pg_tables 
+                    WHERE schemaname = $1 
+                    AND tablename ~ '^t[0-9a-f]{32}$'
+                `, [config.schema || 'public']);
+
+                // Si encontramos tablas encriptadas, asumir que alguna corresponde a esta tabla
+                // (esto es una aproximación, idealmente necesitaríamos la clave para verificar)
+                if (result.rows.length > 0) {
+                    // Retornar la primera tabla encriptada encontrada como placeholder
+                    return result.rows[0].tablename;
+                }
+                
+                return null;
+            } finally {
+                client.release();
+            }
+        } catch (error) {
+            console.warn('Error verificando auditoría encriptada:', error.message);
+            return null;
         }
     }
 

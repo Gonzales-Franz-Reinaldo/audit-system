@@ -42,11 +42,11 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
     const [searchTerm, setSearchTerm] = useState('');
     const [actionFilter, setActionFilter] = useState<'all' | 'INSERT' | 'UPDATE' | 'DELETE'>('all');
 
-    
+
     // ✅ NUEVO: Estado para información de tabla actualizada
     const [currentTableInfo, setCurrentTableInfo] = useState<AuditTable>(auditTable);
 
-    
+
     // Paginación
     const {
         currentPage,
@@ -137,51 +137,11 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
         }
     };
 
-    // Cargar datos desencriptados
-    // const loadDecryptedData = async (key: string) => {
-    //     try {
-    //         console.log('🔓 Cargando datos desencriptados...');
-
-    //         const data = await getDecryptedData(
-    //             connectionInfo.type,
-    //             connectionInfo.config,
-    //             auditTable.tableName,
-    //             key,
-    //             pageSize,
-    //             (currentPage - 1) * pageSize
-    //         );
-
-    //         console.log('📨 Datos desencriptados recibidos:', data);
-
-    //         if (data) {
-    //             setAuditData(data);
-    //             setTotal(data.totalRecords);
-    //             setIsEncrypted(false);
-    //             setEncryptionKey(key);
-    //             setShowDecryptModal(false);
-
-    //             // ✅ CORREGIR: Actualizar el objeto auditTable con el nombre original
-    //             if (data.originalTableName) {
-    //                 setAuditTable(prev => ({
-    //                     ...prev,
-    //                     originalTable: data.originalTableName, // ← Usar el nombre desencriptado
-    //                     displayName: data.originalTableName    // ← También para mostrar
-    //                 }));
-    //             }
-
-    //             toast.success('Datos desencriptados exitosamente');
-    //             console.log('✅ Datos desencriptados cargados correctamente');
-    //         }
-    //     } catch (error) {
-    //         console.error('❌ Error desencriptando datos:', error);
-    //         toast.error('Error desencriptando datos - Verifica tu clave');
-    //     }
-    // };
 
     const loadDecryptedData = async (key: string) => {
         try {
             console.log('🔓 Cargando datos desencriptados...');
-            
+
             const data = await getDecryptedData(
                 connectionInfo.type,
                 connectionInfo.config,
@@ -192,6 +152,7 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
             );
 
             console.log('📨 Datos desencriptados recibidos:', data);
+            console.log('📋 originalTableName en respuesta:', data?.originalTableName);
 
             if (data) {
                 setAuditData(data);
@@ -199,19 +160,31 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                 setIsEncrypted(false);
                 setEncryptionKey(key);
                 setShowDecryptModal(false);
-                
-                // ✅ CORREGIR: Actualizar información de tabla con nombre original
+
+                // ✅ CRÍTICO: Actualizar información de tabla con nombre original
                 if (data.originalTableName) {
+                    console.log('🔄 Actualizando información de tabla con:', data.originalTableName);
+
                     setCurrentTableInfo(prev => ({
                         ...prev,
-                        originalTable: data.originalTableName,
+                        originalTable: data.originalTableName!, // ✅ USAR el operador !
                         displayName: data.originalTableName,
                         isDecrypted: true
                     }));
+
+                    console.log('✅ Tabla original actualizada a:', data.originalTableName);
+                } else {
+                    console.warn('⚠️ No se recibió originalTableName en la respuesta');
                     
-                    console.log('✅ Tabla original identificada:', data.originalTableName);
+                    // ✅ FALLBACK: Intentar obtener desde los logs o usar nombre por defecto
+                    setCurrentTableInfo(prev => ({
+                        ...prev,
+                        originalTable: 'Tabla Desencriptada',
+                        displayName: 'Tabla Desencriptada',
+                        isDecrypted: true
+                    }));
                 }
-                
+
                 toast.success('Datos desencriptados exitosamente');
                 console.log('✅ Datos desencriptados cargados correctamente');
             }
@@ -249,14 +222,8 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
         }
     };
 
-    // Volver a encriptar vista
-    // const handleEncrypt = () => {
-    //     setEncryptionKey('');
-    //     setIsEncrypted(true);
-    //     loadEncryptedData();
-    // };
-
-    // ✅ CORREGIR: Función para volver a vista encriptada
+   
+    // ✅ TAMBIÉN CORREGIR: Función para volver a vista encriptada
     const handleEncrypt = () => {
         setEncryptionKey('');
         setIsEncrypted(true);
@@ -306,9 +273,6 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
             {/* Header */}
             <div className="bg-white rounded-lg shadow-md p-6">
                 <div className="flex items-center justify-between mb-6">
-
-                    
-
                     <div className="flex items-center space-x-4">
                         <button
                             onClick={onBack}
@@ -317,33 +281,32 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                             <ArrowLeft className="w-4 h-4 mr-2" />
                             Volver
                         </button>
-                        
+
                         <div>
                             <h2 className="text-2xl font-bold text-gray-900">
                                 Auditoría: {auditTable.tableName}
                             </h2>
                             <div className="flex items-center space-x-4 mt-2">
-                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                    isEncrypted 
-                                        ? 'bg-red-100 text-red-800' 
+                                <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${isEncrypted
+                                        ? 'bg-red-100 text-red-800'
                                         : 'bg-green-100 text-green-800'
-                                }`}>
+                                    }`}>
                                     <Lock className="w-3 h-3 mr-1" />
                                     {isEncrypted ? 'Encriptado' : 'Desencriptado'}
                                 </span>
-                                
+
                                 {/* ✅ CORREGIR: Mostrar tabla original correcta */}
                                 <span className="text-sm text-gray-600">
                                     Tabla Origen: <span className="font-medium text-indigo-600">
                                         {!isEncrypted && currentTableInfo.originalTable && currentTableInfo.originalTable !== 'ENCRYPTED_TABLE'
                                             ? currentTableInfo.originalTable
-                                            : isEncrypted 
-                                                ? 'Tabla Encriptada' 
+                                            : isEncrypted
+                                                ? 'Tabla Encriptada'
                                                 : 'Desconocida'
                                         }
                                     </span>
                                 </span>
-                                
+
                                 <span className="text-sm text-gray-600">
                                     Registros: <span className="font-medium">{safeTotal}</span>
                                 </span>
@@ -352,62 +315,29 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                     </div>
 
                     <div className="flex items-center space-x-3">
-                        {/* Toggle de encriptación */}
+                        {/* Botón de desencriptar/encriptar */}
                         {isEncrypted ? (
                             <button
                                 onClick={() => setShowDecryptModal(true)}
                                 disabled={encryptedLoading}
-                                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
+                                className="flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50"
                             >
                                 <Unlock className="w-4 h-4 mr-2" />
-                                Desencriptar Vista
+                                Desencriptar
                             </button>
                         ) : (
                             <button
                                 onClick={handleEncrypt}
-                                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                                className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
                             >
                                 <Lock className="w-4 h-4 mr-2" />
                                 Encriptar Vista
                             </button>
                         )}
-
-                        {/* Refresh */}
-                        <button
-                            onClick={isEncrypted ? loadEncryptedData : () => loadDecryptedData(encryptionKey)}
-                            disabled={encryptedLoading || decryptedLoading}
-                            className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-                        >
-                            <RefreshCw className={`w-4 h-4 mr-2 ${(encryptedLoading || decryptedLoading) ? 'animate-spin' : ''}`} />
-                            Actualizar
-                        </button>
                     </div>
                 </div>
 
                 {/* Información adicional */}
-                {/* <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                        <div>
-                            <span className="font-medium text-gray-700">Tipo de Vista:</span>
-                            <span className={`ml-2 ${isEncrypted ? 'text-purple-600' : 'text-green-600'}`}>
-                                {isEncrypted ? 'Datos Encriptados' : 'Datos Legibles'}
-                            </span>
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">Tabla Origen:</span>
-                            <span className="ml-2 text-gray-900">
-                                {auditTable.originalTable}
-                            </span>
-                        </div>
-                        <div>
-                            <span className="font-medium text-gray-700">Identificador:</span>
-                            <span className="ml-2 font-mono text-gray-600">
-                                {auditTable.tableName}
-                            </span>
-                        </div>
-                    </div>
-                </div> */}
-
                 <div className="bg-gray-50 rounded-lg p-4">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                         <div>
@@ -436,7 +366,6 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                     </div>
                 </div>
             </div>
-
 
             {/* Tabla de datos */}
             <div className="bg-white rounded-lg shadow-md overflow-hidden">

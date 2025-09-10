@@ -9,40 +9,36 @@ class AuditService {
         this.auditTablePrefix = 'aud_';
     }
 
-    // Listar todas las tablas de auditoría
+
     async getAuditTables(dbType, connection, config) {
         try {
             let query;
             let params = [];
 
             if (dbType === 'mysql') {
-                // Para MySQL mantener formato actual pero buscar tablas encriptadas también
                 query = `
                     SELECT 
                         table_name,
-                        table_rows as record_count,
-                        CASE 
-                            WHEN table_name LIKE 'aud_%' THEN SUBSTRING(table_name, 5)
-                            WHEN table_name REGEXP '^t[0-9a-f]{32}$' THEN 'ENCRYPTED'
-                            ELSE table_name
-                        END as original_table_guess
+                        table_rows as record_count
                     FROM information_schema.tables 
                     WHERE table_schema = ? 
-                    AND (table_name LIKE 'aud_%' OR table_name REGEXP '^t[0-9a-f]{32}$')
+                    AND table_name LIKE 'aud_%'
                     ORDER BY table_name
                 `;
                 params = [config.database];
             } else if (dbType === 'postgresql') {
-                // ✅ CORREGIR: Query más simple que no dependa de tabla de mapeo que puede no existir
+                // ✅ MEJORAR: Incluir mapeo desde tabla de metadatos
                 query = `
                     SELECT 
                         t.tablename as table_name,
-                        CASE 
-                            WHEN t.tablename LIKE 'aud_%' THEN SUBSTRING(t.tablename, 5)
-                            WHEN t.tablename ~ '^t[0-9a-f]{32}$' THEN 'ENCRYPTED_TABLE'
-                            ELSE 'UNKNOWN'
-                        END as original_table
+                        COALESCE(m.original_table_name, 
+                            CASE 
+                                WHEN t.tablename LIKE 'aud_%' THEN SUBSTRING(t.tablename, 5)
+                                ELSE 'ENCRYPTED_TABLE'
+                            END) as original_table
                     FROM pg_tables t
+                    LEFT JOIN "${config.schema || 'public'}"."sys_audit_metadata_enc" m 
+                        ON t.tablename = m.encrypted_table_name
                     WHERE t.schemaname = $1 
                     AND (
                         t.tablename LIKE 'aud_%' OR 
@@ -84,17 +80,17 @@ class AuditService {
 
             console.log('📋 Tablas de auditoría encontradas:', result.length);
 
-            // ✅ CORREGIR: Mapeo debe identificar correctamente tablas encriptadas
+            // ✅ MEJORAR: Mapeo con nombres originales correctos
             const auditTables = result.map(row => {
                 const isEncryptedTable = row.table_name.match(/^t[0-9a-f]{32}$/);
                 
                 return {
                     tableName: row.table_name, // Nombre real (encriptado o aud_xxx)
-                    originalTable: row.original_table || 'Desconocida', // Tabla original
+                    originalTable: row.original_table || (isEncryptedTable ? 'ENCRYPTED_TABLE' : row.table_name.replace('aud_', '')), // ✅ USAR EL MAPEO REAL
                     hasEncryption: true,
                     recordCount: parseInt(row.record_count) || 0,
-                    isEncrypted: isEncryptedTable ? true : false, // ✅ MARCAR CORRECTAMENTE
-                    isEncryptedTable: isEncryptedTable ? true : false // ✅ NUEVA PROPIEDAD
+                    isEncrypted: isEncryptedTable ? true : false,
+                    isEncryptedTable: isEncryptedTable ? true : false
                 };
             });
 
@@ -451,29 +447,7 @@ class AuditService {
     // CORREGIR el método getDecryptedAuditData para usar mapeo consistente:
     async getDecryptedAuditData(dbType, connection, config, auditTableName, encryptionKey, limit = 100, offset = 0) {
         try {
-            // console.log('🔓 === INICIO getDecryptedAuditData ===');
-            // console.log('📋 Tabla de auditoría:', auditTableName);
-
-            // // Primero obtener los datos encriptados
-            // const encryptedData = await this.getEncryptedAuditData(dbType, connection, config, auditTableName, limit, offset);
-
-            // // Obtener la tabla original usando el mapeo
-            // const originalTableName = await this.getOriginalTableName(dbType, connection, config, auditTableName, encryptionKey);
             
-            // if (!originalTableName) {
-            //     throw new Error('No se pudo determinar la tabla original. Verifique la clave de encriptación.');
-            // }
-
-            // // ✅ CORREGIR: Extraer el nombre de tabla si viene en formato JSON
-            // let cleanOriginalTableName = originalTableName;
-            // if (typeof originalTableName === 'string' && originalTableName.startsWith('{')) {
-            //     try {
-            //         const parsed = JSON.parse(originalTableName);
-            //         cleanOriginalTableName = parsed.originalTable || originalTableName;
-            //     } catch (e) {
-            //         console.warn('⚠️ No se pudo parsear JSON del nombre de tabla, usando como está');
-            //     }
-            // }
 
             console.log('🔓 === INICIO getDecryptedAuditData ===');
             console.log('📋 Tabla de auditoría:', auditTableName);

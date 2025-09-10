@@ -90,11 +90,12 @@ export interface EncryptedTablesResponse {
     };
 }
 
-// Datos de auditoría
+
 export interface AuditData {
     data: any[];
     columns: ColumnInfo[];
     originalColumns?: string[];
+    originalTableName?: string; // ✅ AGREGAR esta propiedad
     totalRecords: number;
     isEncrypted: boolean;
     pagination?: {

@@ -618,93 +618,6 @@ class AuditController {
         }
     }
 
-    // Desencriptar y ver datos de auditoría
-    // async viewDecryptedAuditData(req, res) {
-    //     const startTime = Date.now();
-    //     let traceId;
-
-    //     try {
-    //         console.log('🔓 === INICIO VER DATOS DESENCRIPTADOS ===');
-    //         const { auditTableName } = req.params;
-    //         const { type, config, encryptionKey, limit = 100, offset = 0 } = req.body;
-
-    //         console.log('📨 Datos recibidos:', {
-    //             auditTableName,
-    //             type,
-    //             config: !!config,
-    //             encryptionKey: !!encryptionKey,
-    //             limit,
-    //             offset
-    //         });
-
-    //         traceId = await systemAuditService.logDataAccess(
-    //             'VIEW_DECRYPTED_AUDIT_DATA',
-    //             auditTableName,
-    //             req.ip,
-    //             true,
-    //             { limit, offset, encryptionUsed: true }
-    //         );
-
-    //         const connection = await databaseManager.getConnection(type, config);
-
-    //         const auditData = await auditService.getDecryptedAuditData(
-    //             type,
-    //             connection,
-    //             config,
-    //             auditTableName,
-    //             encryptionKey,
-    //             limit,
-    //             offset
-    //         );
-
-    //         const duration = Date.now() - startTime;
-
-    //         await systemAuditService.logDataAccess(
-    //             'VIEW_DECRYPTED_AUDIT_DATA_SUCCESS',
-    //             auditTableName,
-    //             req.ip,
-    //             true,
-    //             {
-    //                 recordCount: auditData.data.length,
-    //                 duration,
-    //                 traceId
-    //             }
-    //         );
-
-    //         console.log('📋 Datos desencriptados obtenidos:', auditData.data.length);
-    //         console.log('🔓 === FIN VER DATOS DESENCRIPTADOS ===');
-
-    //         res.json({
-    //             success: true,
-    //             ...auditData,
-    //             traceId
-    //         });
-    //     } catch (error) {
-    //         const duration = Date.now() - startTime;
-    //         console.error('💥 Error obteniendo datos desencriptados:', error);
-
-    //         await systemAuditService.logDataAccess(
-    //             'VIEW_DECRYPTED_AUDIT_DATA_ERROR',
-    //             req.params.auditTableName || 'unknown',
-    //             req.ip,
-    //             true,
-    //             {
-    //                 success: false,
-    //                 error: error.message,
-    //                 duration,
-    //                 traceId
-    //             }
-    //         );
-
-    //         res.status(500).json({
-    //             success: false,
-    //             error: 'Error obteniendo datos desencriptados',
-    //             details: error.message,
-    //             traceId
-    //         });
-    //     }
-    // }
-
 
     async viewDecryptedAuditData(req, res) {
         const startTime = Date.now();
@@ -729,7 +642,7 @@ class AuditController {
                 auditTableName,
                 req.ip,
                 true,
-                { limit, offset, encryptionUsed: true }
+                { limit, offset }
             );
 
             const connection = await databaseManager.getConnection(type, config);
@@ -771,9 +684,15 @@ class AuditController {
 
             console.log('🔓 === FIN VER DATOS DESENCRIPTADOS ===');
 
+            // ✅ CRÍTICO: ASEGURAR que originalTableName se incluya en la respuesta
             res.json({
                 success: true,
-                ...auditData, // ✅ VERIFICAR: Esto debe incluir originalTableName
+                data: auditData.data,
+                columns: auditData.columns,
+                originalColumns: auditData.originalColumns,
+                originalTableName: auditData.originalTableName, // ✅ AGREGAR EXPLÍCITAMENTE
+                totalRecords: auditData.totalRecords,
+                isEncrypted: auditData.isEncrypted,
                 traceId
             });
         } catch (error) {
@@ -801,7 +720,6 @@ class AuditController {
             });
         }
     }
-
 
 
     // Resto de métodos con logging similar...

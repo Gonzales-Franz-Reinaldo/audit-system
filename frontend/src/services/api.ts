@@ -394,7 +394,6 @@ class ApiService {
     }
 
 
-    // Obtener datos de auditoría desencriptados - CORREGIDO
     async getDecryptedAuditData(
         type: DatabaseType,
         config: DatabaseConfig,
@@ -424,15 +423,18 @@ class ApiService {
 
             // CORREGIR: Manejar la estructura de respuesta correcta
             if (response.data && response.data.success) {
+                // ✅ ASEGURAR que originalTableName se extraiga correctamente
                 const result: AuditData = {
                     data: response.data.data || [],
                     columns: response.data.columns || [],
                     originalColumns: response.data.originalColumns || [],
+                    originalTableName: response.data.originalTableName, // ✅ EXTRAER EXPLÍCITAMENTE
                     totalRecords: response.data.totalRecords || 0,
                     isEncrypted: response.data.isEncrypted || false
                 };
 
                 console.log('✅ Datos desencriptados procesados:', result);
+                console.log('📋 originalTableName extraído:', result.originalTableName); // ✅ LOG DE DEBUG
                 return result;
             }
 
@@ -440,7 +442,7 @@ class ApiService {
             throw new Error('Estructura de respuesta inválida del servidor');
 
         } catch (error) {
-            console.error(`❌ Error desencriptando datos:`, error);
+            console.error('❌ Error desencriptando datos:', error);
 
             const axiosError = error as AxiosError;
             if (axiosError.response?.data) {
@@ -451,6 +453,7 @@ class ApiService {
             throw new Error(axiosError.message || 'Error de conexión al desencriptar datos');
         }
     }
+
 
     // Validar contraseña de encriptación - CORREGIDO
     async validateEncryptionPassword(

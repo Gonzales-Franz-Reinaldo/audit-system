@@ -36,7 +36,6 @@ class AuditService {
                 `;
                 params = [config.database];
             } else {
-                // ✅ VERIFICAR si la tabla de metadatos existe antes de hacer JOIN
                 const client = await connection.connect();
                 let hasMetadataTable = false;
                 
@@ -124,13 +123,12 @@ class AuditService {
 
             console.log('📋 Tablas de auditoría encontradas:', result.length);
 
-            // ✅ MEJORAR: Mapeo con nombres originales correctos
             const auditTables = result.map(row => {
                 const isEncryptedTable = row.table_name.match(/^t[0-9a-f]{32}$/);
                 
                 return {
                     tableName: row.table_name, // Nombre real (encriptado o aud_xxx)
-                    originalTable: row.original_table || (isEncryptedTable ? 'ENCRYPTED_TABLE' : row.table_name.replace('aud_', '')), // ✅ USAR EL MAPEO REAL
+                    originalTable: row.original_table || (isEncryptedTable ? 'ENCRYPTED_TABLE' : row.table_name.replace('aud_', '')), 
                     hasEncryption: true,
                     recordCount: parseInt(row.record_count) || 0,
                     isEncrypted: isEncryptedTable ? true : false,
@@ -374,7 +372,6 @@ class AuditService {
 
 
 
-    // ✅ NUEVO: Obtener tablas de auditoría encriptadas
     async getEncryptedAuditTables(dbType, connection, config) {
         try {
             console.log('🔍 Obteniendo tablas de auditoría encriptadas...');
@@ -422,7 +419,7 @@ class AuditService {
                     originalTable: '[ENCRIPTADO]',  // No se puede conocer sin clave
                     hasEncryption: true,
                     recordCount: parseInt(row.record_count) || 0,
-                    isEncryptedTable: true  // ✅ NUEVA PROPIEDAD
+                    isEncryptedTable: true  
                 }));
 
                 return auditTables;
@@ -435,7 +432,6 @@ class AuditService {
         }
     }
 
-    // ✅ NUEVO: Obtener tablas desencriptadas con clave
     async getDecryptedAuditTables(dbType, connection, config, encryptionKey) {
         try {
             console.log('🔓 Obteniendo tablas de auditoría desencriptadas...');
@@ -463,7 +459,7 @@ class AuditService {
                         hasEncryption: true,
                         recordCount: encTable.recordCount,
                         isEncryptedTable: true,
-                        isDecrypted: true  // ✅ MARCA COMO DESENCRIPTADO
+                        isDecrypted: true 
                     });
                 } catch (mappingError) {
                     console.warn(`⚠️ No se pudo desencriptar tabla ${encTable.tableName}:`, mappingError.message);
@@ -507,7 +503,6 @@ class AuditService {
                 throw new Error('No se pudo determinar la tabla original. Verifique la clave de encriptación.');
             }
 
-            // ✅ CORREGIR: Extraer el nombre de tabla si viene en formato JSON
             let cleanOriginalTableName = originalTableName;
             if (typeof originalTableName === 'string' && originalTableName.startsWith('{')) {
                 try {
@@ -521,11 +516,9 @@ class AuditService {
 
             console.log('📋 Tabla original determinada:', cleanOriginalTableName);
 
-            // ✅ CRÍTICO: Obtener TODAS las columnas EN EL MISMO ORDEN que se crearon
             const originalColumns = await this.getOriginalTableColumns(dbType, connection, config, cleanOriginalTableName);
             const auditColumns = ['usuario_accion', 'fecha_accion', 'accion_sql'];
             
-            // ✅ CAMBIO PRINCIPAL: Combinar TODAS las columnas EN EL ORDEN CORRECTO
             const allOriginalColumns = [
                 ...originalColumns.map(col => col.name), // ← TODAS las columnas de la tabla original
                 ...auditColumns                          // ← Más las columnas de auditoría
@@ -535,7 +528,6 @@ class AuditService {
             console.log('📋 Columnas de auditoría:', auditColumns);
             console.log('📋 TOTAL de columnas a desencriptar:', allOriginalColumns);
 
-            // ✅ CREAR MAPEO CONSISTENTE: columna encriptada -> columna original
             const columnMapping = await this.createConsistentColumnMapping(
                 dbType, connection, config, cleanOriginalTableName, allOriginalColumns, encryptionKey
             );
@@ -559,7 +551,6 @@ class AuditService {
                 };
             }
 
-            // ✅ DESENCRIPTAR usando el mapeo consistente
             const decryptedData = [];
 
             for (const encryptedRow of encryptedData.data) {
@@ -568,7 +559,6 @@ class AuditService {
                     created_at: encryptedRow.created_at
                 };
 
-                // ✅ USAR MAPEO CONSISTENTE para desencriptar
                 for (const originalColumnName of allOriginalColumns) {
                     const encryptedColumnName = columnMapping[originalColumnName];
                     
@@ -627,12 +617,10 @@ class AuditService {
         }
     }
 
-    // ✅ AGREGAR: Método para crear mapeo consistente de columnas
     async createConsistentColumnMapping(dbType, connection, config, tableName, allColumns, encryptionKey) {
         const mapping = {};
         
         try {
-            // ✅ GENERAR nombres encriptados EN EL MISMO ORDEN que en triggerService
             for (let i = 0; i < allColumns.length; i++) {
                 const columnName = allColumns[i];
                 
@@ -861,7 +849,6 @@ class AuditService {
     }
 
     // Eliminar tabla de auditoría
-    // VERIFICAR que este método esté completo en auditService.js:
     async removeAuditTable(dbType, connection, config, auditTableName) {
         try {
             console.log('🗑️ === INICIO ELIMINACIÓN AUDITORÍA ===');
@@ -970,7 +957,6 @@ class AuditService {
             
             let originalTableName;
             
-            // ✅ NUEVO: Detectar si es tabla encriptada o normal
             const isEncryptedTable = auditTableName.match(/^t[0-9a-f]{32}$/);
             
             if (isEncryptedTable) {
@@ -1052,7 +1038,6 @@ class AuditService {
                     await client.query(`DROP TABLE IF EXISTS "${schema}"."${auditTableName}" CASCADE`);
                     console.log(`🗑️ Tabla eliminada: ${auditTableName}`);
 
-                    // 4. ✅ NUEVO: Si es tabla encriptada, eliminar también el mapeo
                     if (isEncryptedTable) {
                         try {
                             await client.query(`DELETE FROM "${schema}"."audit_table_mappings" WHERE encrypted_table_name = $1`, [auditTableName]);

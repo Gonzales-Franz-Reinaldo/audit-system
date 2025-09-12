@@ -423,18 +423,17 @@ class ApiService {
 
             // CORREGIR: Manejar la estructura de respuesta correcta
             if (response.data && response.data.success) {
-                // ✅ ASEGURAR que originalTableName se extraiga correctamente
                 const result: AuditData = {
                     data: response.data.data || [],
                     columns: response.data.columns || [],
                     originalColumns: response.data.originalColumns || [],
-                    originalTableName: response.data.originalTableName, // ✅ EXTRAER EXPLÍCITAMENTE
+                    originalTableName: response.data.originalTableName, 
                     totalRecords: response.data.totalRecords || 0,
                     isEncrypted: response.data.isEncrypted || false
                 };
 
                 console.log('✅ Datos desencriptados procesados:', result);
-                console.log('📋 originalTableName extraído:', result.originalTableName); // ✅ LOG DE DEBUG
+                console.log('📋 originalTableName extraído:', result.originalTableName);
                 return result;
             }
 

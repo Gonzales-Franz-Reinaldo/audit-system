@@ -284,7 +284,7 @@ class AuditController {
 
             const connection = await databaseManager.getConnection(type, config);
 
-            // ✅ SOLUCIÓN: PROCESAMIENTO COMPLETAMENTE SECUENCIAL
+            //  PROCESAMIENTO COMPLETAMENTE SECUENCIAL
             const results = [];
             let processedCount = 0;
 
@@ -295,7 +295,7 @@ class AuditController {
                 console.log(`⚙️ [${processedCount}/${tablesToProcess.length}] Configurando: ${tableName}`);
 
                 try {
-                    // ✅ AGREGAR: Pausa entre tablas para evitar conflictos de concurrencia
+                    // Pausa entre tablas para evitar conflictos de concurrencia
                     if (processedCount > 1) {
                         console.log('⏳ Pausa anti-conflicto...');
                         await new Promise(resolve => setTimeout(resolve, 2000)); // 2 segundos
@@ -338,7 +338,7 @@ class AuditController {
                     });
                 }
 
-                // ✅ MOSTRAR PROGRESO
+                //  MOSTRAR PROGRESO
                 const successCount = results.filter(r => r.success).length;
                 const failureCount = results.filter(r => !r.success).length;
                 console.log(`📊 Progreso: ${processedCount}/${tablesToProcess.length} | ✅ ${successCount} | ❌ ${failureCount}`);
@@ -659,7 +659,7 @@ class AuditController {
 
             const duration = Date.now() - startTime;
 
-            // ✅ AGREGAR: Log del nombre de tabla original para debug
+            // Log del nombre de tabla original para debug
             console.log('📋 Datos desencriptados obtenidos:', auditData.data.length);
             console.log('📋 Nombre de tabla original:', auditData.originalTableName);
             console.log('📋 Estructura de respuesta:', {
@@ -676,7 +676,7 @@ class AuditController {
                 true,
                 {
                     recordCount: auditData.data.length,
-                    originalTableName: auditData.originalTableName, // ✅ AGREGAR para log
+                    originalTableName: auditData.originalTableName, 
                     duration,
                     traceId
                 }
@@ -684,13 +684,13 @@ class AuditController {
 
             console.log('🔓 === FIN VER DATOS DESENCRIPTADOS ===');
 
-            // ✅ CRÍTICO: ASEGURAR que originalTableName se incluya en la respuesta
+            //  ASEGURAR que originalTableName se incluya en la respuesta
             res.json({
                 success: true,
                 data: auditData.data,
                 columns: auditData.columns,
                 originalColumns: auditData.originalColumns,
-                originalTableName: auditData.originalTableName, // ✅ AGREGAR EXPLÍCITAMENTE
+                originalTableName: auditData.originalTableName, 
                 totalRecords: auditData.totalRecords,
                 isEncrypted: auditData.isEncrypted,
                 traceId
@@ -754,7 +754,7 @@ class AuditController {
             console.log('📋 Tablas de auditoría obtenidas:', auditTables.length);
             console.log('📋 === FIN OBTENER TABLAS AUDITORÍA ===');
 
-            // CORREGIR: Asegurarse de que la respuesta tenga la estructura correcta
+            // Asegurarse de que la respuesta tenga la estructura correcta
             res.json({
                 success: true,
                 data: {
@@ -899,8 +899,6 @@ class AuditController {
         }
     }
 
-    // AGREGAR: Método para eliminación masiva
-    // COMPLETAR el método removeAllTablesAudit que estaba incompleto:
     async removeAllTablesAudit(req, res) {
         const startTime = Date.now();
         let traceId;
@@ -989,7 +987,6 @@ class AuditController {
     }
 
 
-    // COMPLETAR el método getAuditStatistics:
     async getAuditStatistics(req, res) {
         const startTime = Date.now();
 

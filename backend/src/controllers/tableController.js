@@ -26,11 +26,9 @@ class TableController {
                 let queryData;
                 let useAdvancedQuery = true;
 
-                // ✅ PRIMERA ESTRATEGIA: Query con metadatos
                 if (type === 'mysql') {
                     queryData = queryBuilders.getMySQLTablesWithAuditInfoQuery(config.database);
                 } else {
-                    // ✅ VERIFICAR si la tabla de metadatos existe
                     try {
                         const client = await connection.connect();
                         try {
@@ -73,14 +71,12 @@ class TableController {
                 for (const row of result) {
                     const hasAudit = parseInt(row.has_audit) === 1;
                     
-                    // ✅ DETECTAR AUDITORÍAS ENCRIPTADAS MANUALMENTE si no hay metadatos
                     let finalHasAudit = hasAudit;
                     let finalAuditType = row.audit_type;
                     let finalAuditTableName = row.audit_table_name;
                     let auditRecordCount = 0;
 
                     if (!useAdvancedQuery) {
-                        // ✅ VERIFICACIÓN MANUAL de tablas encriptadas
                         try {
                             const encryptedTableName = await this.checkForEncryptedAuditTable(type, connection, config, row.table_name);
                             if (encryptedTableName) {
@@ -93,7 +89,6 @@ class TableController {
                         }
                     }
 
-                    // ✅ OBTENER conteo real de auditoría si existe
                     if (finalHasAudit && finalAuditTableName) {
                         auditRecordCount = await TableController.getAuditRecordCount(
                             type, 
@@ -109,17 +104,14 @@ class TableController {
                         recordCount: await TableController.parseRecordCount(row, type, connection, config),
                         size: TableController.formatTableSize(row, type),
                         comment: row.table_comment || null,
-                        // ✅ INFORMACIÓN DE AUDITORÍA CORREGIDA
                         hasAudit: finalHasAudit,
                         auditTableName: finalHasAudit ? finalAuditTableName : null,
                         auditType: finalHasAudit ? finalAuditType : null,
                         auditRecordCount: auditRecordCount,
                         auditSize: finalHasAudit ? TableController.formatAuditSize(row, type) : null,
-                        // ✅ AGREGAR: Estado de auditoría más descriptivo
                         auditStatus: finalHasAudit 
                             ? (finalAuditType === 'encrypted' ? 'Auditoría Encriptada' : 'Auditoría Convencional')
                             : 'Sin Auditoría',
-                        // ✅ AGREGAR: Información de timestamps
                         createdAt: row.create_time || null,
                         updatedAt: row.update_time || null
                     };
@@ -132,7 +124,6 @@ class TableController {
                     data: tables,
                     totalTables: tables.length,
                     tablesWithAudit: tables.filter(t => t.hasAudit).length,
-                    // ✅ AGREGAR: Estadísticas por tipo
                     auditStatistics: {
                         conventional: tables.filter(t => t.auditType === 'conventional').length,
                         encrypted: tables.filter(t => t.auditType === 'encrypted').length,
@@ -169,7 +160,6 @@ class TableController {
                     }
 
                     const simpleTables = fallbackResult
-                        // ✅ FILTRAR tablas de auditoría en fallback también
                         .filter(row => 
                             !row.table_name.startsWith('aud_') &&
                             !row.table_name.match(/^t[0-9a-f]{32}$/) &&
@@ -180,7 +170,7 @@ class TableController {
                             recordCount: parseInt(row.table_rows) || 0,
                             size: type === 'mysql' ? `${row.size_mb || 0} MB` : (row.size_mb || 'N/A'),
                             comment: row.table_comment || null,
-                            hasAudit: false, // No se puede determinar en fallback
+                            hasAudit: false, 
                             auditTableName: null,
                             auditType: null,
                             auditRecordCount: 0,
@@ -223,12 +213,10 @@ class TableController {
         }
     }
 
-    // ✅ AGREGAR: Método para verificar auditorías encriptadas manualmente
     async checkForEncryptedAuditTable(type, connection, config, tableName) {
         try {
             if (type !== 'postgresql') return null;
 
-            // Buscar tablas que empiecen con 't' y tengan 32 caracteres hex
             const client = await connection.connect();
             try {
                 const result = await client.query(`
@@ -238,10 +226,7 @@ class TableController {
                     AND tablename ~ '^t[0-9a-f]{32}$'
                 `, [config.schema || 'public']);
 
-                // Si encontramos tablas encriptadas, asumir que alguna corresponde a esta tabla
-                // (esto es una aproximación, idealmente necesitaríamos la clave para verificar)
                 if (result.rows.length > 0) {
-                    // Retornar la primera tabla encriptada encontrada como placeholder
                     return result.rows[0].tablename;
                 }
                 
@@ -272,35 +257,6 @@ class TableController {
         }
     }
 
-    // static async getAuditRecordCount(type, connection, config, auditTableName) {
-    //     try {
-    //         let query;
-    //         let params = [];
-
-    //         if (type === 'mysql') {
-    //             query = `SELECT COUNT(*) as count FROM \`${auditTableName}\``;
-    //         } else {
-    //             query = `SELECT COUNT(*) as count FROM "${config.schema || 'public'}"."${auditTableName}"`;
-    //         }
-
-    //         let result;
-    //         if (type === 'mysql') {
-    //             [result] = await connection.execute(query, params);
-    //             return parseInt(result[0].count) || 0;
-    //         } else {
-    //             const client = await connection.connect();
-    //             try {
-    //                 const queryResult = await client.query(query, params);
-    //                 return parseInt(queryResult.rows[0].count) || 0;
-    //             } finally {
-    //                 client.release();
-    //             }
-    //         }
-    //     } catch (error) {
-    //         console.warn(`Error contando registros en ${auditTableName}:`, error.message);
-    //         return 0;
-    //     }
-    // }
 
     static async getAuditRecordCount(type, connection, config, auditTableName, auditType = 'conventional') {
         try {

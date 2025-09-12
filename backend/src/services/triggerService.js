@@ -17,7 +17,6 @@ class TriggerService {
         this.encryptedTablePrefix = 't';
     }
 
-    // NUEVO: Generar nombre de tabla de auditoría encriptado
     generateEncryptedAuditTableName(originalTableName, encryptionKey) {
         // Generar hash determinístico de 32 caracteres
         const hash = crypto
@@ -85,7 +84,6 @@ class TriggerService {
 
     // Generar nombres de columnas encriptadas consistentes
     generateEncryptedColumnName(columnName, encryptionKey) {
-        // ✅ USAR EXACTAMENTE el mismo algoritmo que en auditService
         const hash = crypto
             .createHash('sha256')
             .update(columnName + encryptionKey)
@@ -105,7 +103,6 @@ class TriggerService {
             // Obtener columnas de la tabla original EN ORDEN
             const originalColumns = await this.getPostgreSQLColumns(connection, schema, tableName);
             
-            // ✅ IMPORTANTE: Mantener el orden exacto
             const orderedColumns = originalColumns.sort((a, b) => a.position - b.position);
             
             // Generar columnas encriptadas para datos EN EL MISMO ORDEN
@@ -183,7 +180,6 @@ class TriggerService {
                 encryptedOriginalName = null;
             }
 
-            // ✅ USAR COLUMNAS CORRECTAS: encrypted_name_data (no mapping_data)
             const query = `
                 INSERT INTO sys_audit_metadata_enc (
                     encrypted_table_name, 
@@ -262,7 +258,6 @@ class TriggerService {
 
             const columns = await this.getPostgreSQLColumns(connection, schema, tableName);
 
-            // ✅ NUEVO: Generar nombre de tabla encriptado
             const encryptedAuditTableName = encryptionService.generateEncryptedTableName(
                 tableName,
                 encryptionKey
@@ -293,7 +288,6 @@ class TriggerService {
 
             const client = await connection.connect();
             try {
-                // ✅ USAR NOMBRE ENCRIPTADO
                 const createTableQuery = `
                 CREATE TABLE IF NOT EXISTS "${schema}"."${encryptedAuditTableName}" (
                     ${allColumns.join(',\n                    ')}
@@ -303,7 +297,6 @@ class TriggerService {
                 console.log('🔧 Ejecutando creación de tabla encriptada...');
                 await client.query(createTableQuery);
 
-                // ✅ GUARDAR MAPEO EN METADATOS
                 await encryptedTableMappingService.saveTableMapping(
                     'postgresql',
                     connection,
@@ -327,7 +320,7 @@ class TriggerService {
 
                 return {
                     success: true,
-                    auditTableName: encryptedAuditTableName,  // ✅ RETORNAR NOMBRE ENCRIPTADO
+                    auditTableName: encryptedAuditTableName,  
                     originalTableName: tableName
                 };
             } finally {
@@ -425,7 +418,6 @@ class TriggerService {
                 // 4. Crear nuevos triggers
                 console.log('🔧 Creando triggers...');
                 
-                // ✅ CORREGIR: Usar for...of en lugar de map para tener acceso a 'action'
                 for (const action of actions) {
                     const trigger = `
                         CREATE TRIGGER ${tableName}_audit_${action.toLowerCase()}_trigger
@@ -434,7 +426,7 @@ class TriggerService {
                     `;
                     
                     await client.query(trigger);
-                    console.log(`✅ Trigger ${action} creado`); // ← AHORA 'action' SÍ ESTÁ DEFINIDA
+                    console.log(`✅ Trigger ${action} creado`);
                 }
 
                 // 5. Verificar que los triggers funcionen con un test
@@ -475,10 +467,6 @@ class TriggerService {
         console.log('📊 Columnas originales:', columns.map(c => c.name));
         console.log('📊 Columnas encriptadas (datos):', encryptedColumns);
         console.log('📊 Columnas encriptadas (auditoría):', encryptedAuditColumns);
-
-        // ✅ CRÍTICO: El orden debe ser el mismo que en desencriptación
-        // 1. Primero todas las columnas de datos originales
-        // 2. Después las columnas de auditoría
 
         // Mapear las columnas originales a valores encriptados
         const columnValues = columns.map((col, index) => {
@@ -905,7 +893,6 @@ class TriggerService {
             if (dbType === 'postgresql') {
                 const client = await connection.connect();
                 try {
-                    // ✅ CORREGIR: Crear tabla con TODAS las columnas necesarias
                     const createTableQuery = `
                         CREATE TABLE IF NOT EXISTS sys_audit_metadata_enc (
                             id SERIAL PRIMARY KEY,
@@ -998,7 +985,6 @@ class TriggerService {
             if (dbType.toLowerCase() === 'postgresql') {
                 console.log('🐘 Configurando PostgreSQL...');
                 
-                // ✅ CREAR TABLA PRIMERO
                 auditResult = await this.createPostgreSQLAuditTable(
                     connection, 
                     config.schema || 'public', 
@@ -1009,13 +995,12 @@ class TriggerService {
                 console.log('📋 Resultado de creación de tabla:', auditResult);
 
                 if (auditResult.success) {
-                    // ✅ PASAR EL NOMBRE CORRECTO DE LA TABLA AL CREAR TRIGGERS
                     triggerResult = await this.createPostgreSQLTriggers(
                         connection,
                         config.schema || 'public',
                         tableName,
                         encryptionKey,
-                        auditResult.auditTableName  // ✅ PASAR NOMBRE CORRECTO
+                        auditResult.auditTableName 
                     );
                 }
             } else if (dbType.toLowerCase() === 'mysql') {

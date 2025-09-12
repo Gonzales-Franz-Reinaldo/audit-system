@@ -204,7 +204,6 @@ class SecurityMiddleware {
     };
 
 
-    // Middleware para validación de parámetros de auditoría - CORREGIDO
     static validateAuditParams = async (req, res, next) => {
         try {
             console.log('🔍 Validando parámetros de auditoría...');
@@ -223,7 +222,6 @@ class SecurityMiddleware {
                     });
                 }
 
-                // ✅ CORREGIR: Verificar tanto aud_ como tablas encriptadas
                 const isAuditTable = auditTableName.startsWith('aud_');
                 const isEncryptedTable = auditTableName.match(/^t[0-9a-f]{32}$/);
                 

@@ -390,7 +390,6 @@ class QueryBuilders {
         };
     }
 
-    // ✅ AGREGAR: Query de fallback segura sin tabla de metadatos
     static getPostgreSQLTablesWithAuditInfoQuerySafe(schema = 'public') {
         return {
             query: `

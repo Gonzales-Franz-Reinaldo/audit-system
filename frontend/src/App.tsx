@@ -220,7 +220,7 @@ function App() {
                         connectionInfo={connectionInfo}
                         onRefresh={refreshData}
                         onAuditSetupComplete={handleAuditSetupComplete}
-                        onViewAuditTable={handleViewAuditTable} // ✅ AGREGAR esta prop
+                        onViewAuditTable={handleViewAuditTable}
                     />
                 );
 
@@ -247,6 +247,7 @@ function App() {
                         Seleccione una tabla de auditoría para visualizar
                     </div>
                 );
+
 
             default:
                 return (

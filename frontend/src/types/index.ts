@@ -26,14 +26,12 @@ export interface TableInfo {
     recordCount: number;
     size?: string;
     comment?: string;
-    // ✅ CORREGIR: Todas estas propiedades deben ser opcionales
     hasAudit: boolean;
     auditTableName?: string;
     auditType?: 'conventional' | 'encrypted' | null;
-    auditRecordCount?: number; // ✅ DEBE ser opcional
+    auditRecordCount?: number;
     auditSize?: string;
     auditStatus?: string;
-    // ✅ AGREGAR: Información de timestamps
     createdAt?: string;
     updatedAt?: string;
     // Propiedades existentes
@@ -42,7 +40,6 @@ export interface TableInfo {
     statistics?: TableStatistics;
 }
 
-// ✅ AGREGAR: Nuevas interfaces para estadísticas
 export interface AuditStatistics {
     conventional: number;
     encrypted: number;
@@ -101,14 +98,12 @@ export interface AuditTable {
     isDecrypted?: boolean;
 }
 
-// ✅ AGREGAR: Tipo específico para tablas encriptadas
 export interface EncryptedAuditTable extends AuditTable {
     isEncryptedTable: true;
     encryptedTableName: string;
     canDecrypt: boolean;
 }
 
-// ✅ AGREGAR: Tipo para respuesta de tablas encriptadas
 export interface EncryptedTablesResponse {
     success: boolean;
     data: {
@@ -122,7 +117,7 @@ export interface AuditData {
     data: any[];
     columns: ColumnInfo[];
     originalColumns?: string[];
-    originalTableName?: string; // ✅ AGREGAR esta propiedad
+    originalTableName?: string;
     totalRecords: number;
     isEncrypted: boolean;
     pagination?: {

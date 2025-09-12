@@ -43,7 +43,6 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
     const [actionFilter, setActionFilter] = useState<'all' | 'INSERT' | 'UPDATE' | 'DELETE'>('all');
 
 
-    // ✅ NUEVO: Estado para información de tabla actualizada
     const [currentTableInfo, setCurrentTableInfo] = useState<AuditTable>(auditTable);
 
 
@@ -161,13 +160,12 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                 setEncryptionKey(key);
                 setShowDecryptModal(false);
 
-                // ✅ CRÍTICO: Actualizar información de tabla con nombre original
                 if (data.originalTableName) {
                     console.log('🔄 Actualizando información de tabla con:', data.originalTableName);
 
                     setCurrentTableInfo(prev => ({
                         ...prev,
-                        originalTable: data.originalTableName!, // ✅ USAR el operador !
+                        originalTable: data.originalTableName!,
                         displayName: data.originalTableName,
                         isDecrypted: true
                     }));
@@ -176,7 +174,6 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
                 } else {
                     console.warn('⚠️ No se recibió originalTableName en la respuesta');
                     
-                    // ✅ FALLBACK: Intentar obtener desde los logs o usar nombre por defecto
                     setCurrentTableInfo(prev => ({
                         ...prev,
                         originalTable: 'Tabla Desencriptada',
@@ -223,7 +220,6 @@ const AuditTableViewer: React.FC<AuditTableViewerProps> = ({
     };
 
    
-    // ✅ TAMBIÉN CORREGIR: Función para volver a vista encriptada
     const handleEncrypt = () => {
         setEncryptionKey('');
         setIsEncrypted(true);

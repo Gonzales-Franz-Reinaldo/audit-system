@@ -30,7 +30,7 @@ interface TableListProps {
     connectionInfo: ConnectionInfo;
     onRefresh: () => void;
     onAuditSetupComplete: () => void;
-    onViewAuditTable?: (auditTable: AuditTable) => void; // ✅ AGREGAR esta prop opcional
+    onViewAuditTable?: (auditTable: AuditTable) => void; 
 }
 
 const TableList: React.FC<TableListProps> = ({
@@ -39,7 +39,7 @@ const TableList: React.FC<TableListProps> = ({
     connectionInfo,
     onRefresh,
     onAuditSetupComplete,
-    onViewAuditTable // ✅ AGREGAR esta prop
+    onViewAuditTable 
 }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterType, setFilterType] = useState<'all' | 'with-audit' | 'without-audit'>('all');
@@ -129,7 +129,6 @@ const TableList: React.FC<TableListProps> = ({
                 clave: !!bulkEncryptionKey
             });
 
-            // ✅ MOSTRAR PROGRESO EN TIEMPO REAL
             toast.loading(`Configurando ${selectedTablesForBulk.length} tablas secuencialmente...`, {
                 duration: 10000
             });
@@ -150,7 +149,6 @@ const TableList: React.FC<TableListProps> = ({
                 const successCount = result.summary?.successful || 0;
                 const failedCount = result.summary?.failed || 0;
 
-                // ✅ TOAST MÁS INFORMATIVO
                 if (successCount > 0 && failedCount === 0) {
                     toast.success(`🎉 Todas las tablas configuradas exitosamente: ${successCount}/${selectedTablesForBulk.length}`);
                 } else if (successCount > 0 && failedCount > 0) {
@@ -205,7 +203,6 @@ const TableList: React.FC<TableListProps> = ({
         }
     };
 
-    // ✅ AGREGAR: Nuevos handlers para las acciones
     const handleViewAudit = (table: TableInfo) => {
         // Navegar a la vista de auditoría para esta tabla
         if (table.auditTableName) {
@@ -213,7 +210,7 @@ const TableList: React.FC<TableListProps> = ({
                 tableName: table.auditTableName,
                 originalTable: table.name,
                 hasEncryption: table.auditType === 'encrypted',
-                recordCount: table.auditRecordCount || 0, // ✅ CORREGIR: Manejar undefined
+                recordCount: table.auditRecordCount || 0, 
                 isEncrypted: table.auditType === 'encrypted',
                 isEncryptedTable: table.auditType === 'encrypted'
             };
@@ -222,7 +219,7 @@ const TableList: React.FC<TableListProps> = ({
             if (onViewAuditTable) {
                 onViewAuditTable(auditTable);
             } else {
-                toast.success(`Tabla de auditoría: ${table.auditTableName}`); // ✅ CORREGIR: usar success en lugar de info
+                toast.success(`Tabla de auditoría: ${table.auditTableName}`);
             }
         }
     };
@@ -230,14 +227,12 @@ const TableList: React.FC<TableListProps> = ({
     const handleRemoveAudit = (table: TableInfo) => {
         if (window.confirm(`¿Estás seguro de que deseas eliminar la auditoría de la tabla "${table.name}"?`)) {
             // Aquí implementar la lógica de eliminación
-            toast.loading('Funcionalidad de eliminación de auditoría pendiente de implementar'); // ✅ CORREGIR: usar loading
-        }
+            toast.loading('Funcionalidad de eliminación de auditoría pendiente de implementar'); 
     };
 
     const handleViewTableInfo = (table: TableInfo) => {
         // Mostrar modal con información detallada de la tabla
-        toast.success(`Información de tabla: ${table.name} - ${table.recordCount} registros`); // ✅ CORREGIR: usar success
-    };
+        toast.success(`Información de tabla: ${table.name} - ${table.recordCount} registros`);
 
     return (
         <div className="space-y-6">

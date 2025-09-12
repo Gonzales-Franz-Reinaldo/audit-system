@@ -762,13 +762,11 @@ class EncryptionService {
 
 // Al final del archivo, ANTES de module.exports = new EncryptionService();
 
-// ✅ DEFINIR la clase EncryptedTableMappingService ANTES de usarla
 class EncryptedTableMappingService {
     constructor() {
         this.mappingCache = new Map(); // Cache en memoria
     }
 
-    // ✅ CORREGIR: Guardar mapeo en metadatos (tabla especial)
     async saveTableMapping(dbType, connection, config, originalTableName, encryptedTableName, encryptionKey) {
         try {
             const metadataTableName = this.getMetadataTableName();
@@ -794,11 +792,9 @@ class EncryptedTableMappingService {
                 encryptedMapping = null;
             }
 
-            // ✅ CORREGIR: Usar las columnas correctas que existen en la tabla
             if (dbType === 'postgresql') {
                 const client = await connection.connect();
                 try {
-                    // ✅ USAR COLUMNAS CORRECTAS: encrypted_name_data NO mapping_data
                     const query = `
                         INSERT INTO sys_audit_metadata_enc (
                             encrypted_table_name, 
@@ -838,7 +834,6 @@ class EncryptedTableMappingService {
         }
     }
 
-    // ✅ CORREGIR: Recuperar mapeo original
     async getTableMapping(dbType, connection, config, encryptedTableName, encryptionKey) {
         try {
             // Verificar cache primero
@@ -854,7 +849,6 @@ class EncryptedTableMappingService {
             if (dbType === 'postgresql') {
                 const client = await connection.connect();
                 try {
-                    // ✅ USAR COLUMNAS CORRECTAS
                     const query = `
                         SELECT original_table_name, encrypted_name_data 
                         FROM sys_audit_metadata_enc 
@@ -897,12 +891,10 @@ class EncryptedTableMappingService {
         return 'sys_audit_metadata_enc';
     }
 
-    // ✅ CORREGIR: Crear tabla con columnas correctas
     async ensureMetadataTable(dbType, connection, config) {
         if (dbType === 'postgresql') {
             const client = await connection.connect();
             try {
-                // ✅ VERIFICAR: Usar exact las mismas columnas que están definidas en triggerService.js
                 const createTableQuery = `
                     CREATE TABLE IF NOT EXISTS sys_audit_metadata_enc (
                         id SERIAL PRIMARY KEY,
@@ -926,9 +918,7 @@ class EncryptedTableMappingService {
     }
 }
 
-// ✅ CREAR INSTANCIA GLOBAL
 const encryptedTableMappingService = new EncryptedTableMappingService();
 
-// ✅ EXPORTAR AMBOS SERVICIOS
 module.exports = new EncryptionService();
 module.exports.encryptedTableMappingService = encryptedTableMappingService;
